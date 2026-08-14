@@ -22,9 +22,10 @@ class T1AdapterTests(unittest.TestCase):
         self.assertFalse(result.retryable)
         self.assertIsNone(result.checkout_number)
 
-    def test_500_is_retryable(self):
+    def test_500_fails_closed_without_retry(self):
         result = T1Adapter.parse_checkout(500, '{}')
-        self.assertTrue(result.retryable)
+        self.assertFalse(result.retryable)
+        self.assertIsNone(result.checkout_number)
 
     def test_missing_checkout_number_fails_closed(self):
         with self.assertRaises(AdapterError):
