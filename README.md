@@ -16,7 +16,7 @@ The current POC implements:
 - task save / browser open / preflight / ARM / cancel
 - T1 checkout request adapter
 - dynamic `checkoutNumber` extraction and checkout navigation
-- bounded retry and duplicate execution lock
+- fail-closed HTTP handling, duplicate execution lock, and generic bounded-retry support disabled for this live POC
 - optional pre-authorized agreement checkbox handling
 - optional payment-window opening while final PG authorization stays manual
 - structured local logs without raw cookies/response bodies
@@ -65,7 +65,7 @@ The runner fails closed when the target server rejects a request. It does not im
 - payment/3DS/2FA bypass
 - credential/cookie exfiltration
 
-Final payment authorization remains manual.
+Final payment authorization remains manual. Automatic checkout replay is off for the live POC.
 
 ## Design documents
 
