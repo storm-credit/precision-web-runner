@@ -32,7 +32,7 @@ class TaskConfig:
     shipping_type_verified: bool = False
     auto_consent: bool = False
     auto_open_payment: bool = False
-    max_retries: int = 1
+    max_retries: int = 0
     retry_delay_ms: int = 250
 
     @classmethod
