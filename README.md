@@ -6,7 +6,7 @@ The first real-world adapter is T1 Membership, but the scheduler/runner core is 
 
 ## Current status
 
-**POC IMPLEMENTATION IN PROGRESS — branch `poc/t1-runner-v1`.**
+**POC IMPLEMENTATION MERGED TO `main` — Windows/T1 live rehearsal is the remaining gate.**
 
 The current POC implements:
 
@@ -23,9 +23,9 @@ The current POC implements:
 
 ## 17 Aug 2026 target
 
-The POC is being narrowed for the 2026-08-17 12:00 KST T1 sale. The goal is to reach the checkout/payment handoff reliably; it does **not** bypass membership, sale-time, stock, queue, CAPTCHA, rate-limit, or payment controls.
+The POC is narrowed for the 2026-08-17 12:00 KST T1 sale. The goal is to reach the checkout/payment handoff reliably; it does **not** bypass membership, sale-time, stock, queue, CAPTCHA, rate-limit, or payment controls.
 
-The default task contains the observed Signature Edition item values, but `shipping_type_verified` is deliberately false until the shipping contract is confirmed.
+The default task contains the observed Signature Edition item values, but `shipping_type_verified` is deliberately false until the Signature Edition shipping contract is confirmed.
 
 ## Quick start on Windows
 
