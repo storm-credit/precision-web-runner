@@ -37,6 +37,7 @@ class RunnerService:
         self.events: list[Event] = []
         self.last_checkout_number: str | None = None
         self.last_error: str | None = None
+        self._consent_handled = False
         self._event("info", "Runner ready")
 
     def close(self) -> None:
@@ -104,15 +105,18 @@ class RunnerService:
             self.state = RunnerState.ARMED
             self.last_error = None
             self.last_checkout_number = None
+            self._consent_handled = False
             self._event("info", "Runner armed", {"target": target.isoformat()})
             self._schedule_thread = threading.Thread(target=self._scheduled_run, daemon=True, name="scheduled-run")
             self._schedule_thread.start()
         return self.status()
 
     def cancel(self) -> dict[str, Any]:
-        self._cancel.set()
         with self._lock:
-            if self.state in _ACTIVE_STATES:
+            if self.state == RunnerState.RUNNING:
+                raise RuntimeError("checkout dispatch has started; cannot safely cancel in-flight work")
+            self._cancel.set()
+            if self.state in {RunnerState.ARMED, RunnerState.PREWARMING}:
                 self.state = RunnerState.CANCELLED
                 self._event("warning", "Runner cancelled")
         return self.status()
@@ -127,6 +131,7 @@ class RunnerService:
             self._cancel = threading.Event()
             self.last_error = None
             self.last_checkout_number = None
+            self._consent_handled = False
             self.state = RunnerState.RUNNING
             self._event("info", "Immediate checkout test accepted")
             thread = threading.Thread(target=self._execute_checkout_flow, daemon=True, name="run-now")
@@ -137,10 +142,11 @@ class RunnerService:
         with self._lock:
             if self.state != RunnerState.WAITING_MANUAL:
                 raise RuntimeError("runner is not waiting at a manual checkpoint")
-        if self.task.auto_consent:
+        if self.task.auto_consent and not self._consent_handled:
             consent = self.browser.submit("consent", timeout=20)
             if not consent.get("ok"):
                 raise RuntimeError(consent.get("reason", "consent failed"))
+            self._consent_handled = True
             self._event("info", "Agreement checkbox handled by configured consent")
         if open_payment:
             payment = self.browser.submit("open_payment", timeout=20)
@@ -175,6 +181,10 @@ class RunnerService:
             return
         if self._cancel.is_set():
             return
+        lateness_ms = (datetime.now(target.tzinfo) - target).total_seconds() * 1000
+        if lateness_ms > 2000:
+            self._fail(f"target missed by {lateness_ms:.0f} ms; refusing late dispatch")
+            return
         self._execute_checkout_flow()
 
     def _execute_checkout_flow(self) -> None:
@@ -196,6 +206,7 @@ class RunnerService:
                 consent = self.browser.submit("consent", timeout=20)
                 if not consent.get("ok"):
                     raise RuntimeError(consent.get("reason", "consent failed"))
+                self._consent_handled = True
                 self._event("info", "Agreement checkbox handled by configured consent")
 
             if self.task.auto_open_payment:
@@ -249,6 +260,7 @@ class RunnerService:
         event = Event(at=datetime.now(KST).isoformat(), level=level, message=message, detail=detail or {})
         with self._lock:
             self.events.append(event)
+            # Intentionally log only structured, redacted fields. Never raw cookies or response bodies.
             try:
                 with self.log_path.open("a", encoding="utf-8") as handle:
                     handle.write(json.dumps(event.to_dict(), ensure_ascii=False) + "\n")
