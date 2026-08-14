@@ -48,12 +48,16 @@ class RunnerService:
         if not self.task_path.exists():
             return TaskConfig()
         try:
-            return TaskConfig.from_dict(json.loads(self.task_path.read_text(encoding="utf-8")))
+            task = TaskConfig.from_dict(json.loads(self.task_path.read_text(encoding="utf-8")))
+            task.max_retries = 0
+            return task
         except Exception:
             return TaskConfig()
 
     def save_task(self, data: dict[str, Any]) -> dict[str, Any]:
         task = TaskConfig.from_dict(data)
+        # Live POC dashboard intentionally disables automatic replay by default.
+        task.max_retries = 0
         errors = task.validate(require_shipping_confirmation=False)
         if errors:
             raise ValueError("; ".join(errors))
