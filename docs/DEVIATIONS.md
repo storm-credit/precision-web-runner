@@ -22,6 +22,17 @@
 - Follow-up verification: Windows live rehearsal must confirm Chrome launches, login persists after restart, and same-origin preflight succeeds.
 - User approval required?: no material product-scope change; this is the recommended session strategy already discussed.
 
+## 2026-08-15 — Automatic checkout retry disabled for live POC
+
+- Original plan: allow one bounded retry for selected transport/server failures.
+- Changed area: checkout failure/retry policy.
+- What changed: live task defaults and dashboard force `max_retries=0`; HTTP failures are classified fail-closed and are not automatically replayed.
+- Why: checkout creation may not be idempotent. A delayed/ambiguous first response followed by replay could create duplicate checkout sessions or trigger rate limits at the worst possible time.
+- Impact: a transient failure will stop the POC instead of automatically issuing another checkout request. The generic retry loop remains in code for future controlled designs, but it is disabled for this live task.
+- Reversible?: yes, after site-specific idempotency/retry semantics are verified.
+- Follow-up verification: unit test HTTP 500 fail-closed behavior; verify persisted task and dashboard both report `max_retries=0`.
+- User approval required?: no scope expansion; this narrows behavior for safety and reliability.
+
 ## Template
 
 ### YYYY-MM-DD — Short title
