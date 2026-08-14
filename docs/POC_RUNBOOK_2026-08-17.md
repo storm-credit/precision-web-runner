@@ -117,12 +117,14 @@ If T1 rejects the request, the runner stops and records the reason. It does not 
 
 ## Retry policy
 
-Default:
+Live POC default:
 
-- `max_retries = 1`
-- `retry_delay_ms = 250`
+- `max_retries = 0`
+- no automatic HTTP replay
 
-Retry only occurs for transport-type or retryable server failures. Normal 4xx eligibility/validation rejection is not retried.
+This is deliberately fail-closed. Replaying a checkout request can create duplicate checkout sessions or interact badly with rate limits. If a request receives a server response and fails, the runner stops and shows the reason.
+
+Transport retry support remains in the generic runner for future review, but the dashboard and persisted POC task force automatic retry off for this live use.
 
 ## Emergency fallback
 
