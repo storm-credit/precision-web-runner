@@ -2,9 +2,11 @@
 
 ## 0. Current phase
 
-**DESIGN FIRST.** Do not implement application code until the user explicitly approves the design and POC scope.
+**POC IMPLEMENTATION APPROVED.** The user explicitly approved continuing implementation on 2026-08-15.
 
-The first real-world adapter is T1, but the core must remain generic enough to support a second site without rewriting the scheduler or runner.
+Implement only the POC required for the 2026-08-17 live rehearsal/use. Do not expand into the general platform until the POC exit report.
+
+The first real-world adapter is T1, but the core must remain generic enough to support a second site without rewriting the scheduler or run state machine.
 
 ## 1. Required behavior
 
@@ -34,23 +36,23 @@ These rules intentionally bias toward caution, simplicity, and evidence.
 12. Verification with evidence
 13. Update decisions/deviations/current status
 
-Do not skip from rough idea directly to implementation.
+Implementation is now permitted, but steps 8-13 remain mandatory.
 
 ## 3. POC success criteria
 
 The POC is successful only when all of the following are verified:
 
 - A Windows runner can be armed before a target time.
-- The scheduler runs outside the browser page and records target time, dispatch time, and response time.
-- The runner uses a logged-in browser context without copying raw authentication cookies to a cloud backend.
+- The scheduler runs outside the browser page and records target/dispatch timing.
+- The runner uses a dedicated logged-in browser context without copying raw authentication cookies to a cloud backend.
 - The T1 adapter can execute the allowed checkout request after the site normally permits it.
 - Dynamic `checkoutNumber` is extracted from the response and used for navigation.
-- The checkout page can be reached and the configured consent step can be handled.
-- The flow stops at a manual final-payment checkpoint by default.
+- The checkout page can be reached and configured consent can be handled.
+- Final PG/payment authorization remains manual.
 - Failure shows the exact failed step and reason.
 - Duplicate execution is prevented.
 - Retry is bounded.
-- T1-specific IDs/endpoints are outside the core runner.
+- T1-specific IDs/endpoints remain outside generic timing/state modules.
 
 ## 4. Safety and site-boundary rules
 
@@ -66,46 +68,49 @@ Never implement:
 
 If the target server rejects the action because the user is not eligible or the action is not yet allowed, stop and report the server rejection.
 
-Final payment authorization is manual unless the user later explicitly changes scope and the design is re-reviewed.
+Opening a payment window may be automated only after explicit local configuration; actual payment authorization remains manual.
 
-## 5. Architecture rules
+## 5. POC architecture rules
 
-Do not assume a hosted web app can use another site's logged-in cookies.
+Current implementation target:
+- Python 3.11+ local process
+- responsive localhost dashboard
+- scheduler running in Python, not page JavaScript
+- Playwright persistent Chrome context with a dedicated local profile
+- browser-context same-origin fetch
+- T1 adapter separated from generic task/timing/state code
+- local structured logs only
 
-POC architecture:
-- Responsive Control UI
-- Local Windows Runner
-- Browser execution bridge
-- Recipe/Adapter engine
-- Scheduler/clock layer
-- Run state machine and structured logs
+Do not add a cloud backend for the POC.
 
-The browser action must run in an authorized browser context for the target origin.
+## 6. Browser/session rules
 
-## 6. Recipe rules
+- Use a dedicated Precision Runner Chrome profile.
+- The user logs in manually once.
+- Do not scrape, export, or persist raw cookies.
+- Execute T1 fetch calls from the T1 page context with `credentials: same-origin`.
+- Do not attach to the user's ordinary Chrome profile for the POC.
 
-Prefer declarative, allow-listed steps. Do not support arbitrary `eval` in recipes.
+## 7. Recipe/adapter rules
 
-Allowed step families:
+Prefer declarative/typed adapter data. Do not support arbitrary stored `eval` recipes.
+
+Allowed conceptual step families:
 - navigate
 - waitUntil
-- waitForSelector
-- waitForText
+- preflight
 - sameOriginFetch
 - extract
-- click
-- check
-- fill
-- assert
+- click/check
 - manualCheckpoint
 
-A recipe may describe actions the site already allows; it must not remove or bypass restrictions.
+T1 adapter may describe actions the site already allows; it must not remove restrictions.
 
-## 7. Time/reliability rules
+## 8. Time/reliability rules
 
 Do not rely on one browser `setTimeout()` for precision scheduling.
 
-Before implementation, account for:
+Account for:
 - local clock drift
 - browser/background throttling
 - PC sleep
@@ -114,49 +119,43 @@ Before implementation, account for:
 - timezone
 - duplicate dispatch
 
-Log at least:
-- targetAt
-- armedAt
-- preflightAt
-- requestStartedAt
-- responseReceivedAt
-- completedAt/failedAt
+Use a monotonic deadline once armed and prewarm the browser before dispatch.
 
-Do not claim millisecond accuracy unless measured.
+Do not claim millisecond accuracy unless measured on the user's Windows machine.
 
-## 8. Pre-implementation trap gate
+## 9. Pre-implementation / live-run trap gate
 
-Before writing runner code, explicitly check:
-- SameSite / HttpOnly / CORS
-- CSRF / nonce / dynamic tokens
-- browser profile/session strategy
-- scheduler behavior during sleep
-- selector stability
-- idempotency / duplicate order risk
-- bounded retry policy
-- payment/3DS/manual stop point
-- sensitive-data redaction
-- mobile browser limitations
+Before a live run explicitly check:
+- browser profile is logged in
+- target URL/item/amount are correct
+- `shippingType` is confirmed
+- target time/timezone are correct
+- Windows is time-synchronized
+- sleep is disabled for the live window
+- preflight passes
+- safe rehearsal has passed
+- retry remains bounded
+- final payment remains manual
 
-Unresolved critical items block implementation.
+Unresolved critical items block ARM.
 
-## 9. UI rules
+## 10. UI rules
 
 Selected design: **Concept 02 — light dashboard**.
 
-Desktop and mobile use one responsive design system.
+Desktop and mobile use one responsive design system, but the live execution engine is Windows-local for the POC.
 
-On the mobile first viewport, show:
+On the first viewport show:
 - target/task
 - target time
-- runner state
-- primary CTA
+- runner state/countdown
+- primary ARM/cancel actions
 
-Every visible button and form must eventually perform a real action; do not leave decorative controls in the shipped POC.
+Every visible button/form must perform a real action.
 
-## 10. Change/deviation rule
+## 11. Change/deviation rule
 
-When the implementation differs from the approved plan, update `docs/DEVIATIONS.md` before declaring completion.
+When implementation differs from the approved plan, update `docs/DEVIATIONS.md` before completion.
 
 Record:
 - date
@@ -168,21 +167,22 @@ Record:
 - reversibility
 - follow-up verification
 
-## 11. Testing rule
+## 12. Testing rule
 
 At minimum test:
-- scheduler timing logic
-- state transitions
-- recipe validation
+- task validation
+- target-time timing helpers
 - response extraction
-- duplicate-run prevention
-- bounded retry
-- timeout/failure handling
-- secret/log redaction
+- non-retryable vs retryable HTTP classification
+- missing checkoutNumber fail-closed behavior
+- syntax/imports
+- local dashboard status route
 
-Do not use a high-value real purchase as the first end-to-end test. Use safe/testable actions and stop before final payment.
+Before live use also perform manual Windows/Chrome rehearsal.
 
-## 12. Meta-prompting rule
+Do not use the 500,000 KRW target as the first end-to-end test.
+
+## 13. Meta-prompting rule
 
 For large AI tasks use:
 
@@ -190,17 +190,23 @@ For large AI tasks use:
 2. Prompt Distillation
 3. Result Verification
 
-A Goal Prompt must include success and stop conditions.
-An Implementation Prompt must include constraints and verification.
-A Research Prompt must define source quality, scope, freshness, and verification method.
+A Goal Prompt includes success and stop conditions.
+An Implementation Prompt includes constraints and verification.
+A Research Prompt defines source quality, scope, freshness, and verification method.
 
-## 13. Stop conditions
+## 14. Stop conditions
 
-Stop and ask/re-plan when:
-- the design must materially change
+Stop/re-plan when:
 - success requires bypassing a server restriction
-- login/session handling cannot be kept safe
-- the flow requires automatic payment authorization
+- login/session handling cannot remain local and safe
+- the flow requires automatic final payment authorization
 - a critical assumption cannot be tested
-- requirements conflict
 - implementation drifts outside POC scope
+- the T1 API/page contract changes materially
+
+## 15. Current implementation caveats
+
+- Signature Edition `inventoryItemId=3454` and amount `500000 KRW` were observed earlier.
+- The direct checkout contract was validated from another normal item.
+- Signature Edition `shippingType` has not yet been independently verified, so live ARM must stay blocked until the user confirms it.
+- POC timing accuracy must be measured on the user's Windows PC; container/unit tests do not prove live timing accuracy.
