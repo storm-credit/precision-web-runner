@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "precision-web-runner"
+version = "0.1.0"
+description = "Local scheduled browser-action POC runner"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+browser = ["playwright>=1.50,<2"]
+
+[project.scripts]
+precision-runner = "precision_runner.webapp:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+precision_runner = ["static/*.html"]
