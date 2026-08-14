@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Precision Runner POC</title>
+  <style>
+    :root{color-scheme:light;--bg:#f5f7fb;--panel:#fff;--line:#e4e8ef;--ink:#172033;--muted:#667085;--accent:#14a46f;--danger:#d92d20;--warn:#b54708;--shadow:0 10px 30px rgba(20,32,60,.07)}
+    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+    button,input{font:inherit} button{cursor:pointer}.shell{max-width:1180px;margin:0 auto;padding:24px}.top{display:flex;justify-content:space-between;gap:16px;align-items:center;margin-bottom:18px}.brand h1{margin:0;font-size:22px}.brand p{margin:4px 0 0;color:var(--muted)}
+    .clock{text-align:right}.clock strong{display:block;font-size:18px}.clock span{color:var(--muted);font-size:12px}.hero{display:grid;grid-template-columns:1.4fr .8fr;gap:16px}.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:18px}.card h2{font-size:15px;margin:0 0 14px}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.field label{display:block;font-size:12px;font-weight:700;margin-bottom:6px;color:#394150}.field input{width:100%;border:1px solid #d7dce5;background:#fff;border-radius:10px;padding:10px 11px;outline:none}.field input:focus{border-color:#8dd8bd;box-shadow:0 0 0 3px rgba(20,164,111,.12)}
+    .wide{grid-column:1/-1}.checks{display:grid;gap:8px;margin-top:12px}.check{display:flex;align-items:flex-start;gap:8px;color:#394150}.check input{margin-top:3px}.hint{font-size:12px;color:var(--muted);margin-top:4px}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}.btn{border:1px solid var(--line);border-radius:10px;padding:10px 13px;background:#fff;color:var(--ink);font-weight:700}.btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}.btn.danger{color:var(--danger);border-color:#f3b7b2}.btn:disabled{opacity:.45;cursor:not-allowed}
+    .statusBox{display:grid;gap:12px}.status{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);padding-bottom:12px}.pill{padding:5px 9px;border-radius:999px;font-weight:800;font-size:12px;background:#edf2f7}.pill.ARMED,.pill.PREWARMING,.pill.RUNNING{background:#e8f7f1;color:#087a51}.pill.FAILED{background:#feeceb;color:#b42318}.pill.WAITING_MANUAL{background:#fff3e6;color:#b54708}.count{font-size:30px;font-variant-numeric:tabular-nums;letter-spacing:-1px}.meta{display:grid;grid-template-columns:1fr 1fr;gap:8px}.meta div{background:#f8fafc;border-radius:10px;padding:10px}.meta span{display:block;font-size:11px;color:var(--muted)}.meta strong{display:block;margin-top:2px;word-break:break-all}
+    .lower{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}.steps{display:grid;gap:9px}.step{display:flex;gap:10px;align-items:flex-start}.dot{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;background:#eef2f6;color:#667085;font-size:11px;font-weight:800;flex:0 0 22px}.step strong{display:block}.step span{font-size:12px;color:var(--muted)}.log{height:330px;overflow:auto;background:#101828;color:#d0d5dd;border-radius:12px;padding:12px;font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace}.logline{margin-bottom:8px}.logline .time{color:#98a2b3}.logline.error{color:#fda29b}.logline.warning{color:#fec84b}.logline.info{color:#d0d5dd}
+    .banner{padding:10px 12px;border-radius:10px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;font-size:12px;margin-top:12px}.errorBox{display:none;background:#fef3f2;border:1px solid #fecdca;color:#b42318;border-radius:10px;padding:10px;margin-top:12px}details{margin-top:14px}summary{cursor:pointer;font-weight:800}.advanced{padding-top:12px}.dangerZone{border-top:1px dashed var(--line);margin-top:14px;padding-top:14px}
+    @media(max-width:820px){.shell{padding:14px}.top{align-items:flex-start}.hero,.lower{grid-template-columns:1fr}.clock strong{font-size:15px}.grid{grid-template-columns:1fr}.wide{grid-column:auto}.card{border-radius:14px}.count{font-size:26px}.actions .btn{flex:1 1 calc(50% - 8px)}.lower{margin-top:12px}.log{height:240px}}
+  </style>
+</head>
+<body>
+<div class="shell">
+  <div class="top"><div class="brand"><h1>Precision Runner <small style="font-size:12px;color:#667085">POC</small></h1><p>T1 Adapter 001 · Windows local execution</p></div><div class="clock"><strong id="now">--:--:--</strong><span>Runner local time (KST)</span></div></div>
+  <section class="hero">
+    <div class="card">
+      <h2>실행 작업</h2>
+      <div class="grid">
+        <div class="field wide"><label>작업명</label><input id="name" /></div>
+        <div class="field wide"><label>대상 URL</label><input id="target_url" /></div>
+        <div class="field"><label>목표 시각 (KST)</label><input id="target_time" type="datetime-local" step="1" /></div>
+        <div class="field"><label>Inventory Item ID</label><input id="inventory_item_id" type="number" /></div>
+        <div class="field"><label>수량</label><input id="quantity" type="number" min="1" /></div>
+        <div class="field"><label>가격 (KRW)</label><input id="amount" type="number" min="1" /></div>
+        <div class="field"><label>Shipping Type</label><input id="shipping_type" /></div>
+      </div>
+      <div class="checks">
+        <label class="check"><input id="shipping_type_verified" type="checkbox" /><span><strong>배송 유형 확인 완료</strong><div class="hint">실전 checkout 전에 반드시 확인. 미확인 상태에서는 ARM/Run Now가 차단됩니다.</div></span></label>
+        <label class="check"><input id="auto_consent" type="checkbox" /><span><strong>약관 체크 자동화 허용</strong><div class="hint">약관을 미리 읽고 동의한 경우에만 켜세요.</div></span></label>
+        <label class="check"><input id="auto_open_payment" type="checkbox" /><span><strong>결제창까지 자동으로 열기</strong><div class="hint">PG 인증/최종 결제는 자동화하지 않으며 사용자가 직접 완료합니다.</div></span></label>
+      </div>
+      <div class="actions"><button class="btn" id="saveBtn">설정 저장</button><button class="btn" id="openBtn">Chrome 열기 / 로그인</button><button class="btn" id="preflightBtn">Preflight 테스트</button><button class="btn primary" id="armBtn">ARM</button><button class="btn danger" id="cancelBtn">취소</button></div>
+      <div class="errorBox" id="errorBox"></div>
+      <div class="banner">서버가 판매시각·멤버십·재고 등의 이유로 요청을 거절하면 Runner는 우회하지 않고 즉시 중단합니다.</div>
+      <details><summary>고급 테스트</summary><div class="advanced"><p class="hint">현재 저장된 상품으로 checkout을 즉시 생성합니다. 실제 고가 상품으로 첫 테스트를 하지 마세요.</p><button class="btn" id="runNowBtn">Checkout Test Now</button><div class="dangerZone"><button class="btn" id="continueBtn">Manual Continue</button> <button class="btn" id="paymentBtn">약관 처리 + 결제창 열기</button></div></div></details>
+    </div>
+    <div class="card statusBox">
+      <div class="status"><div><div class="hint">RUNNER STATE</div><span class="pill" id="state">READY</span></div><div style="text-align:right"><div class="hint">COUNTDOWN</div><div class="count" id="countdown">--:--:--</div></div></div>
+      <div class="meta"><div><span>Target</span><strong id="targetMeta">-</strong></div><div><span>Checkout #</span><strong id="checkoutMeta">-</strong></div><div class="wide"><span>Last error</span><strong id="errorMeta">-</strong></div></div>
+      <div class="steps">
+        <div class="step"><div class="dot">1</div><div><strong>Open authenticated Chrome</strong><span>Dedicated local profile; login remains local.</span></div></div>
+        <div class="step"><div class="dot">2</div><div><strong>T-30s preflight</strong><span>Warm page and safe same-origin check.</span></div></div>
+        <div class="step"><div class="dot">3</div><div><strong>Target-time checkout dispatch</strong><span>Bounded retry only for retryable failures.</span></div></div>
+        <div class="step"><div class="dot">4</div><div><strong>Dynamic checkout navigation</strong><span>Extract checkoutNumber, then navigate.</span></div></div>
+        <div class="step"><div class="dot">5</div><div><strong>Manual payment checkpoint</strong><span>Final payment/3DS/2FA stays manual.</span></div></div>
+      </div>
+    </div>
+  </section>
+  <section class="lower">
+    <div class="card"><h2>실전 체크리스트</h2><div class="steps"><div class="step"><div class="dot">✓</div><div><strong>전용 Chrome 프로필 로그인</strong><span>Chrome 열기 버튼으로 로그인 상태를 미리 확인.</span></div></div><div class="step"><div class="dot">✓</div><div><strong>배송 유형 확인</strong><span>Signature 상품의 shippingType을 확인 후 체크.</span></div></div><div class="step"><div class="dot">✓</div><div><strong>안전한 상품으로 리허설</strong><span>checkout 생성 → 페이지 이동 → manual checkpoint 검증.</span></div></div><div class="step"><div class="dot">✓</div><div><strong>Windows 절전 해제</strong><span>실전 동안 PC가 sleep되지 않도록 설정.</span></div></div><div class="step"><div class="dot">✓</div><div><strong>17일 11:55 이전 ARM</strong><span>Runner 상태와 로그를 확인하고 대기.</span></div></div></div></div>
+    <div class="card"><h2>실행 로그</h2><div class="log" id="log"></div></div>
+  </section>
+</div>
+<script>
+const $=id=>document.getElementById(id);let loaded=false;
+function showError(msg){const el=$('errorBox');if(!msg){el.style.display='none';el.textContent='';return;}el.textContent=msg;el.style.display='block';}
+function isoForInput(iso){if(!iso)return'';const d=new Date(iso);const kst=new Date(d.getTime()+9*3600000);return kst.toISOString().slice(0,19)}
+function inputToIso(v){return v?v+'+09:00':''}
+function readForm(){return{name:$('name').value,target_url:$('target_url').value,target_time:inputToIso($('target_time').value),inventory_item_id:Number($('inventory_item_id').value),quantity:Number($('quantity').value),amount:Number($('amount').value),currency_code:'KRW',shipping_type:$('shipping_type').value,shipping_type_verified:$('shipping_type_verified').checked,auto_consent:$('auto_consent').checked,auto_open_payment:$('auto_open_payment').checked,max_retries:1,retry_delay_ms:250}}
+function fillForm(t){$('name').value=t.name||'';$('target_url').value=t.target_url||'';$('target_time').value=isoForInput(t.target_time);$('inventory_item_id').value=t.inventory_item_id??'';$('quantity').value=t.quantity??1;$('amount').value=t.amount??'';$('shipping_type').value=t.shipping_type||'';$('shipping_type_verified').checked=!!t.shipping_type_verified;$('auto_consent').checked=!!t.auto_consent;$('auto_open_payment').checked=!!t.auto_open_payment}
+async function api(path,body){showError('');const res=await fetch(path,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});const data=await res.json();if(!data.ok)throw new Error(data.error||'request failed');return data.data}
+function fmtCountdown(sec){sec=Math.max(0,Math.floor(sec));const h=String(Math.floor(sec/3600)).padStart(2,'0'),m=String(Math.floor((sec%3600)/60)).padStart(2,'0'),s=String(sec%60).padStart(2,'0');return`${h}:${m}:${s}`}
+function escapeHtml(s){return String(s).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]))}
+function render(s){$('state').textContent=s.state;$('state').className='pill '+s.state;$('now').textContent=new Date(s.now).toLocaleTimeString('ko-KR',{hour12:false,timeZone:'Asia/Seoul'});$('countdown').textContent=fmtCountdown(s.secondsRemaining);$('targetMeta').textContent=new Date(s.target).toLocaleString('ko-KR',{timeZone:'Asia/Seoul',hour12:false});$('checkoutMeta').textContent=s.lastCheckoutNumber||'-';$('errorMeta').textContent=s.lastError||'-';const active=['ARMED','PREWARMING','RUNNING'].includes(s.state);$('armBtn').disabled=active;$('saveBtn').disabled=active;$('cancelBtn').disabled=!active;$('continueBtn').disabled=s.state!=='WAITING_MANUAL';$('paymentBtn').disabled=s.state!=='WAITING_MANUAL';$('log').innerHTML=(s.events||[]).slice().reverse().map(e=>`<div class="logline ${e.level}"><span class="time">${new Date(e.at).toLocaleTimeString('ko-KR',{hour12:false,timeZone:'Asia/Seoul'})}</span> ${escapeHtml(e.message)} ${Object.keys(e.detail||{}).length?'<span class="time">'+escapeHtml(JSON.stringify(e.detail))+'</span>':''}</div>`).join('');if(!loaded){fillForm(s.task);loaded=true}}
+async function refresh(){try{render(await api('/api/status'))}catch(e){showError(e.message)}}
+async function save(){await api('/api/task',readForm());loaded=false;await refresh()}
+$('saveBtn').onclick=async()=>{try{await save()}catch(e){showError(e.message)}};
+$('openBtn').onclick=async()=>{try{await save();await api('/api/browser/open',{});await refresh()}catch(e){showError(e.message)}};
+$('preflightBtn').onclick=async()=>{try{await save();await api('/api/preflight',{});await refresh()}catch(e){showError(e.message)}};
+$('armBtn').onclick=async()=>{try{await save();await api('/api/arm',{});await refresh()}catch(e){showError(e.message)}};
+$('cancelBtn').onclick=async()=>{try{await api('/api/cancel',{});await refresh()}catch(e){showError(e.message)}};
+$('runNowBtn').onclick=async()=>{if(!confirm('현재 설정으로 checkout을 즉시 생성합니다. 안전한 테스트 상품인지 확인했나요?'))return;try{await save();await api('/api/run-now',{confirmation:'RUN_CHECKOUT_NOW'});await refresh()}catch(e){showError(e.message)}};
+$('continueBtn').onclick=async()=>{try{await api('/api/continue',{openPayment:false});await refresh()}catch(e){showError(e.message)}};
+$('paymentBtn').onclick=async()=>{if(!confirm('약관 자동 동의가 설정된 경우 체크하고 결제창을 엽니다. 최종 결제는 직접 해야 합니다.'))return;try{await api('/api/continue',{openPayment:true});await refresh()}catch(e){showError(e.message)}};
+refresh();setInterval(refresh,1000);
+</script>
+</body>
+</html>
