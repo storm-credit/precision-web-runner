@@ -63,7 +63,9 @@ class T1Adapter:
 
     @staticmethod
     def parse_checkout(status: int, text: str) -> CheckoutResult:
-        retryable = status >= 500 or status in (408, 429)
+        # HTTP responses fail closed by default. Replaying a server response can
+        # create duplicate checkout sessions or interact badly with rate limits.
+        retryable = False
         if not 200 <= status < 300:
             return CheckoutResult(
                 status=status,
