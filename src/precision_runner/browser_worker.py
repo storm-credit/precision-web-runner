@@ -166,12 +166,15 @@ class BrowserWorker:
                 );
                 if (!label) return {ok: false, reason: 'agreement label not found'};
                 const box = label.querySelector('input[type="checkbox"]') || label.parentElement?.querySelector('input[type="checkbox"]');
-                if (box && box.checked) return {ok: true, alreadyChecked: true};
+                const ariaChecked = label.getAttribute('aria-checked') === 'true';
+                if ((box && box.checked) || ariaChecked) return {ok: true, alreadyChecked: true};
                 label.click();
                 return {ok: true, alreadyChecked: false};
             }""",
             T1Adapter.agreement_text,
         )
+        if result.get("ok"):
+            self._page.wait_for_timeout(250)
         return dict(result)
 
     def _action_open_payment(self) -> dict[str, Any]:
