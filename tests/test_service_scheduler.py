@@ -1,5 +1,4 @@
 import tempfile
-import threading
 import time
 import unittest
 from datetime import datetime, timedelta
@@ -64,6 +63,9 @@ class ServiceSchedulerIntegrationTests(unittest.TestCase):
                 target_time=(datetime.now().astimezone() + timedelta(hours=1)).isoformat(),
                 shipping_type_verified=True,
             )
+            # R6 makes TESTED an explicit ARM prerequisite. This R3 regression
+            # test focuses on snapshot -> scheduler request fidelity.
+            service.state = RunnerState.TESTED
 
             service.arm()
             self.assertEqual(len(scheduler.requests), 1)

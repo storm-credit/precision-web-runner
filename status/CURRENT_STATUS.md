@@ -2,7 +2,7 @@
 
 ## Phase
 
-**CONTROLLED IMPLEMENTATION — R1-R5 COMPLETE; R6 NEXT.**
+**CONTROLLED IMPLEMENTATION — R1-R6 + C1/C2 COMPLETE; R7 NEXT.**
 
 Implementation proceeds one approved R-slice at a time with tests/checks first. LIVE remains **NO-GO** until every mandatory Go/No-Go row passes.
 
@@ -14,6 +14,8 @@ Implementation proceeds one approved R-slice at a time with tests/checks first. 
 - C1 Domain/Storage/Timing checkpoint — PASS
 - R4 Adapter Contract + T1 Adapter Migration — PASS
 - R5 Generic BrowserBridge + Typed BrowserResult — PASS
+- R6 Orchestrator / Error / Side-effect / Retry Migration — PASS
+- C2 Adapter/Browser/Orchestrator checkpoint — PASS
 
 Evidence:
 - `verification/R1_DOMAIN_REVIEW.md`
@@ -22,38 +24,64 @@ Evidence:
 - `verification/C1_FOUNDATION_REVIEW.md`
 - `verification/R4_ADAPTER_REVIEW.md`
 - `verification/R5_BROWSER_BRIDGE_REVIEW.md`
+- `verification/R6_ORCHESTRATOR_REVIEW.md`
+- `verification/C2_ADAPTER_BROWSER_ORCHESTRATOR_REVIEW.md`
 
-## R5 result
+## R6 result
 
-The forward browser layer is now site-agnostic:
-- BrowserBridge imports no T1 adapter
-- exact origin/open/request/navigation guards
-- same-origin credentials only
-- Cookie/Authorization/Set-Cookie injection blocked
-- typed BrowserResult / BrowserResultCategory
-- bounded transient response body
-- declarative RequestSpec/NavigationSpec execution
-- semantic locator check/click only
-- duplicate-profile launch classification foundation
+The active execution path now follows the approved contracts:
 
-A temporary `legacy_t1_browser_facade.py` preserves the pre-R6 RunnerService action surface so the intermediate main branch remains usable. It is explicitly a compatibility quarantine, not a new architecture contract.
+```text
+ArmedRunSnapshot
+  -> AdapterPlan
+  -> Generic BrowserBridge / BrowserResult
+  -> AdapterStepResult
+  -> Core ErrorInfo + SideEffectStatus + LocalStore policy
+```
+
+Key safety behavior now enforced:
+- DRAFT -> TESTED before ARM or TEST execution
+- LIVE and TEST snapshots are distinct
+- irreversible checkout request dispatches at most once automatically
+- legacy task retry fields are ignored by forward orchestration
+- transport/no-response after irreversible dispatch => TRANSPORT_AMBIGUOUS / no replay
+- 403/429/server rejection => stop; no alternate endpoint/replay
+- 2xx contract mismatch => AMBIGUOUS / no replay
+- confirmed checkout + navigation failure preserves current-run checkout identifier
+- recovery can reopen the existing checkout without a second create-checkout request
+- duplicate execution signals cannot dispatch a second irreversible action
+- successful automation stops at WAITING_MANUAL, not PAID
+- legacy T1 browser facade removed from active path
+
+The first R6 CI revealed R2/R3 regression tests that still assumed DRAFT -> ARM. Those tests were aligned to the already-approved TESTED-before-ARM state machine while preserving their original storage/scheduler assertions. Full CI then passed.
+
+## C2 result
+
+Status: **PASS**
+
+C2 confirms:
+- site facts remain adapter-owned
+- BrowserBridge is site-agnostic
+- exact-origin/credential protections remain
+- Core has no site endpoint/payload/locator literals on the forward path
+- ambiguity cannot create an automatic replay
+- confirmed-side-effect recovery reuses only the known current-run checkout
+
+No unresolved C2 BLOCKER or MAJOR finding remains.
 
 ## Next implementation slice
 
-**R6 — Orchestrator / Error / Side-effect / Retry Migration**
+**R7 — Typed / Redacted / Bounded Observability**
 
-R6 is the critical convergence slice. It must:
-- make RunnerService consume AdapterPlan + BrowserResult directly
-- remove the legacy T1 browser facade from the execution path
-- enforce full state semantics
-- remove task-global/generic irreversible retry behavior
-- model TRANSPORT_AMBIGUOUS explicitly
-- distinguish confirmed checkout + navigation failure from ambiguous checkout creation
-- keep current checkoutNumber recovery scoped to current run
-- expose stable ErrorInfo-compatible failure data
-- preserve TEST/LIVE intent boundary
+R7 must replace the legacy Event JSONL path with typed RunEvent persistence that:
+- assigns runId + sequence + state + stage + code + sideEffect
+- admits only safe allow-listed detail fields
+- redacts/blocks secret and PII keys before persistence
+- never persists BrowserResult response bodies
+- keeps event storage bounded/rotated
+- records safe timing metrics needed for rehearsal analysis
 
-After R6 passes, run Checkpoint C2 across R4-R6 before R7.
+Do not begin R8 API hardening inside R7.
 
 ## LIVE blockers remain
 
@@ -62,6 +90,6 @@ After R6 passes, run Checkpoint C2 across R4-R6 before R7.
 - G27 Windows dedicated Chrome session persistence/profile ownership pending
 - G28 near-live target contract freshness pending
 - safe checkout/navigation/manual-handoff rehearsal pending
-- log-redaction inspection pending
+- rehearsal log redaction inspection pending
 
 Coding completion never overrides these LIVE gates.

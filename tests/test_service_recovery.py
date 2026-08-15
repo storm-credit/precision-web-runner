@@ -76,11 +76,14 @@ class RunnerServiceRecoveryTests(unittest.TestCase):
                 store=FailingCreateStore(),
             )
             service.task = self.live_task_config()
+            # R6 makes TESTED an explicit ARM prerequisite. This R2 regression
+            # test is about persistence ordering, not preflight behavior.
+            service.state = RunnerState.TESTED
 
             with self.assertRaises(StoreError):
                 service.arm()
 
-            self.assertEqual(service.state, RunnerState.DRAFT)
+            self.assertEqual(service.state, RunnerState.TESTED)
             self.assertIsNone(service._schedule_thread)
             self.assertEqual(browser.calls, [])
 
@@ -135,6 +138,7 @@ class RunnerServiceRecoveryTests(unittest.TestCase):
             store = LocalStore(root)
             service = RunnerService(data_dir=root, browser=browser, store=store)
             service.task = self.live_task_config()
+            service.state = RunnerState.TESTED
 
             service.arm()
 
