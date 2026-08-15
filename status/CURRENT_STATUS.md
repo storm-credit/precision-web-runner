@@ -2,67 +2,72 @@
 
 ## Phase
 
-**IMPLEMENTATION AUTHORIZED — R1 DOMAIN CONTRACTS COMPLETE; R2 NEXT.**
+**CONTROLLED IMPLEMENTATION — R1 + R2 COMPLETE; R3 NEXT.**
 
-The user explicitly approved continuing into coding after Deep Design, reconciliation, and Harness Gate 6. Implementation now proceeds one approved R-slice at a time with tests/checks first.
+Implementation proceeds one approved R-slice at a time with tests/checks first. LIVE remains **NO-GO** until every mandatory Go/No-Go row passes.
 
-LIVE remains **NO-GO** until every mandatory Go/No-Go row passes.
+## Completed foundation
 
-## Completed before coding
-
-- Deep Design baseline and review
-- Harness / Gate 0-10 workflow
-- implementation reconciliation (KEEP/CHANGE/MOVE/DELETE)
+- Deep Design + Harness + implementation reconciliation
 - G01-G28 gap matrix
 - R1-R10 implementation-ready plan
-- Harness Gate 6 PASS for coding approval
+- Harness Gate 6 coding approval
 
 ## R1 — Domain Contracts
 
 Status: **PASS**
 
-Implemented in the R1 branch:
-- first-class `RunMode(TEST, LIVE)`
-- approved RunnerState vocabulary
-- generic `TaskDefinition`
-- adapter-specific `adapter_variables`
-- immutable/deep-frozen `ArmedRunSnapshot`
-- manual payment boundary policy
-- stable ErrorCode/ErrorInfo foundation
-- typed immutable RunEvent foundation
+Evidence: `verification/R1_DOMAIN_REVIEW.md`
 
-Tests were committed before runtime implementation. Full GitHub Actions unit suite passed.
+Established:
+- TEST/LIVE mode
+- generic TaskDefinition
+- immutable ArmedRunSnapshot
+- approved state vocabulary
+- error/event contract foundations
 
-Review evidence:
-- `verification/R1_DOMAIN_REVIEW.md`
+## R2 — Local Store / Atomic ARM / Restart Safety
+
+Status: **PASS**
+
+Evidence: `verification/R2_STORE_RECOVERY_REVIEW.md`
+
+Established:
+- versioned LocalStore
+- editable task separated from immutable active-run snapshot
+- atomic active-run persistence before scheduler start
+- runId persisted with snapshot
+- storage/corruption failures visible
+- restart with any active run fails closed
+- RUNNING/ambiguous state never silently replays
+- terminal cancellation archived to history
+
+The first R2 CI exposed a guard-order defect: target validation ran before recovery blocking. Recovery is now checked first and rechecked under the commit lock. Latest full CI passed.
 
 ## Transitional compatibility
 
-Existing Architecture Spike `TaskConfig`, legacy `Event`, and `RunnerState.READY` remain temporarily so R1 does not trigger an uncontrolled adapter/orchestrator rewrite.
-
-They are compatibility shims only. The approved generic domain is now the forward source of truth and later slices migrate runtime behavior onto it.
+Legacy `TaskConfig`, `Event`, `task.json`, T1-coupled browser/adapter paths, and the spike retry loop remain only where later approved slices own their migration. They are not design source of truth.
 
 ## Next implementation slice
 
-**R2 — Local Store / Atomic ARM / Restart Safety**
+**R3 — Scheduler / Timing Contract**
 
-R2 must establish:
-- editable TaskDefinition storage separate from ArmedRunSnapshot
-- atomic runId + snapshot persistence before scheduling
-- versioned local store format
-- visible storage corruption/failure
-- restart fail-closed behavior
-- no silent replay from prior RUNNING/ambiguous state
+R3 closes:
+- G07 SchedulerSignal / clock discontinuity
+- G08 explicit snapshot maxLatenessMs
+- foundation for G26 timing evidence
 
-Do not start R3 until R2 has its own tests, review, CI evidence, and slice completion record.
+R3 must be browser/site independent and testable with a fake/injected clock where practical. It must not intentionally dispatch before the configured permitted time.
 
 ## Cross-slice checkpoint
 
-Checkpoint C1 occurs after R1, R2, and R3 are independently complete. C1 rechecks:
-- domain genericity
+After R3 passes independently, run Checkpoint C1 across R1-R3:
+- generic domain boundary
 - snapshot immutability
-- restart/storage invariants
-- scheduler/timing safety
+- atomic/restart safety
+- scheduler/clock safety
+
+Do not start R4 until C1 passes.
 
 ## LIVE blockers remain
 
@@ -74,5 +79,3 @@ Checkpoint C1 occurs after R1, R2, and R3 are independently complete. C1 recheck
 - safe checkout/navigation/manual-handoff rehearsal pending
 - log redaction inspection pending
 - near-live target contract freshness pending
-
-Coding completion never overrides these LIVE gates.
