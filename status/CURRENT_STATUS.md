@@ -2,15 +2,13 @@
 
 ## Phase
 
-**DEEP DESIGN BASELINE COMPLETE — USER REVIEW / APPROVAL PENDING.**
+**IMPLEMENTATION RECONCILIATION INVENTORY COMPLETE — RUNTIME CODING STILL FROZEN.**
 
-Runtime code already present in the repository remains **Architecture Spike / prototype evidence only**. No feature expansion or runtime reconciliation occurs until the user approves the design baseline.
+The Deep Design + Harness baseline was presented for review and the user instructed the project to continue on 2026-08-15. That advances the project into Implementation Reconciliation planning, but does **not** authorize runtime coding yet because the user explicitly wants coding to happen last.
 
-## Why this phase exists
+Existing runtime remains **Architecture Spike / prototype evidence** until the reconciliation plan is explicitly released for implementation.
 
-The 2026-08-17 live target caused implementation to begin before the full design/harness package was complete. The repository has now corrected that order by making the architecture contracts, failure policy, timing, security, adapter boundary, UX states, acceptance evidence, and live release gate explicit.
-
-## Deep design completed
+## Completed design baseline
 
 - System Design v1
 - Component Contracts v1
@@ -26,46 +24,67 @@ The 2026-08-17 live target caused implementation to begin before the full design
 - Second-pass Deep Blindspot Review
 - Deep Design Review Report
 
+Design blocker count: **0 unresolved**.
+
 ## Harness completed
 
-- `CLAUDE.md` design-freeze constitution
-- Context → Interview → Blindspot → Trap → Design → Review → Approval → Implementation → Verification gates
-- explicit reviewer lenses/roles
-- repository-native current-status / next-action memory
+- `CLAUDE.md` project constitution
+- Context → Interview → Blindspot → Trap → Design → Review → Approval → Reconciliation → Implementation → Verification gates
+- reviewer lenses/roles
+- current-status / next-action repository memory
 - deviation discipline
-- meta-prompting process
-- dedicated design-review prompt
+- meta-prompting rules
 - acceptance matrix
 - live Go/No-Go gate
 
-## Review verdict
+## Reconciliation completed in this phase
 
-`design/DESIGN_REVIEW_REPORT.md`:
+- `design/IMPLEMENTATION_RECONCILIATION.md`
+  - file-by-file KEEP / KEEP+HARDEN / CHANGE / MOVE / DELETE inventory
+  - responsibility-move map
+  - safe implementation order R1-R10
+- `verification/IMPLEMENTATION_GAP_MATRIX.md`
+  - design-to-code gaps G01-G28
+  - implementation blockers vs live-evidence blockers separated
 
-- Design blockers: none currently unresolved
-- Design baseline: **PASS FOR USER REVIEW**
-- Implementation: **FROZEN / NOT YET RECONCILED**
-- Live: **NO-GO**
+### Main conclusion
 
-## Frozen until approval
+Do **not** rewrite the POC from zero.
 
+Keep the proven local/Playwright/same-origin/scheduler foundations, but materially reconcile:
+- core model + immutable ArmedRunSnapshot
+- state machine
+- per-step side-effect/error policy
+- browser/adapter separation
+- restart/recovery
+- typed/redacted observability
+- TEST/LIVE UI intent boundary
+
+Highest-risk current mismatch: `models.py` + `service.py`.
+
+## Runtime frozen
+
+No changes are authorized yet to:
 - `src/`
 - `tests/`
 - `scripts/`
 - runtime dependencies
-- new automation features
-- generalized URL/AI recipe generation
 
-## Known unresolved LIVE facts
+No new features, second adapter, cloud execution, remote LAN control, or generalized URL/AI recipe work.
+
+## Known LIVE blockers
 
 - Signature Edition `shippingType` is not independently verified.
-- Windows scheduling variance is not yet measured.
-- T1 authentication/session persistence has not yet been rehearsed on the user's Windows machine.
-- Current T1 contract freshness must be rechecked before live use.
-- Checkout creation must never be inferred to mean inventory reservation or payment success.
+- Windows scheduling variance is not measured.
+- T1 dedicated Chrome login/session persistence is not rehearsed on the user's Windows machine.
+- target-site checkout contract freshness must be rechecked near rehearsal/live time.
+- safe checkout/navigation/payment-handoff rehearsal remains required after reconciliation.
+- log redaction must be inspected with real rehearsal output.
 
-## Next phase trigger
+LIVE remains **NO-GO** regardless of unit-test status until `verification/POC_GO_NO_GO.md` passes.
 
-Only explicit user approval of the deep-design baseline opens **Implementation Reconciliation**.
+## Next trigger
 
-That next phase starts with a KEEP / CHANGE / DELETE inventory of the existing Architecture Spike. It does not start with new feature coding.
+The next step is **Implementation-Ready Plan Review**, not coding.
+
+Create a task-by-task plan mapping R1-R10 to Gap IDs and acceptance tests. Runtime coding begins only after the user explicitly approves that final implementation plan.
