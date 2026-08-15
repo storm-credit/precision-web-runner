@@ -13,7 +13,6 @@ from .models import (
     ArmedRunSnapshot,
     ErrorCode,
     ErrorInfo,
-    Event,
     KST,
     ManualBoundaryPolicy,
     RunMode,
@@ -23,6 +22,7 @@ from .models import (
     TaskConfig,
     TaskDefinition,
 )
+from .observability import EventLogger, RunEvent
 from .scheduler import ScheduleRequest, Scheduler, SchedulerLease, SchedulerSignalKind
 from .store import LocalStore, StoreCorrupt, StoreError
 from .t1_adapter import T1Adapter
@@ -38,13 +38,7 @@ _DEFAULT_MAX_LATENESS_MS = 2_000
 
 
 class RunnerService:
-    """POC orchestrator.
-
-    R6 makes the adapter and browser contracts authoritative for execution. The
-    service owns state, one-run leasing, side-effect classification, persistence,
-    and stop/recovery policy. It does not construct site request payloads or DOM
-    locators itself.
-    """
+    """POC orchestrator with fail-closed side-effect and observability policy."""
 
     def __init__(
         self,
@@ -53,17 +47,19 @@ class RunnerService:
         store: LocalStore | None = None,
         scheduler: Scheduler | None = None,
         adapter: Any | None = None,
+        event_logger: EventLogger | None = None,
     ):
         self.data_dir = data_dir or (Path.home() / ".precision-web-runner")
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.profile_dir = self.data_dir / "chrome-profile"
         self.task_path = self.data_dir / "task.json"  # temporary dashboard compatibility until R8
-        self.log_path = self.data_dir / "runs.jsonl"  # replaced by typed logger in R7
+        self.events_path = self.data_dir / "events.jsonl"
 
         self.adapter = adapter or T1Adapter()
         self.browser = browser or BrowserBridge(self.profile_dir)
         self.store = store or LocalStore(self.data_dir)
         self.scheduler = scheduler or Scheduler()
+        self.event_logger = event_logger or EventLogger(self.events_path)
 
         self._lock = threading.RLock()
         self._execution_lock = threading.Lock()
@@ -73,7 +69,7 @@ class RunnerService:
 
         self.task = self._load_task()
         self.state = RunnerState.DRAFT
-        self.events: list[Event] = []
+        self.events: list[RunEvent] = self.event_logger.read_recent(60)
         self.last_checkout_number: str | None = None
         self.last_error: str | None = None
         self.last_error_info: ErrorInfo | None = None
@@ -84,9 +80,16 @@ class RunnerService:
 
         self._restore_recovery_state()
         if self._recovery_blocked:
-            self._event("error", self.last_error or "Runner recovery blocked")
+            self._event(
+                "error",
+                self.last_error or "Runner recovery blocked",
+                code="RECOVERY_REQUIRED",
+                stage=RunStage.PRECHECK,
+                side_effect=self.last_error_info.side_effect if self.last_error_info else SideEffectStatus.AMBIGUOUS,
+                run_id=self.active_run_id or "recovery-unknown",
+            )
         else:
-            self._event("info", "Runner ready")
+            self._event("info", "Runner ready", code="RUNNER_STARTED", stage=RunStage.PRECHECK)
 
     def close(self) -> None:
         self._cancel.set()
@@ -136,8 +139,6 @@ class RunnerService:
         try:
             return TaskConfig.from_dict(json.loads(self.task_path.read_text(encoding="utf-8")))
         except Exception:
-            # This file is only the old dashboard compatibility representation.
-            # The versioned LocalStore is authoritative for run-safety state.
             return TaskConfig()
 
     def _task_definition(self, mode: RunMode) -> TaskDefinition:
@@ -181,7 +182,7 @@ class RunnerService:
             self.state = RunnerState.DRAFT
             self.last_error = None
             self.last_error_info = None
-            self._event("info", "Task saved; validation state reset")
+            self._event("info", "Task saved; validation state reset", code="TASK_SAVED", stage=RunStage.PRECHECK)
         return task.to_dict()
 
     def status(self) -> dict[str, Any]:
@@ -207,7 +208,7 @@ class RunnerService:
         result = self.browser.submit("open", spec, timeout=40)
         if not result.ok:
             raise RuntimeError(result.reason or result.category.value)
-        self._event("info", "Browser opened", {"url": result.final_url})
+        self._event("info", "Browser opened", code="BROWSER_OPENED", stage=RunStage.PRECHECK)
         return {"url": result.final_url, "title": result.safe_data.get("title", "")}
 
     def preflight(self) -> dict[str, Any]:
@@ -215,18 +216,35 @@ class RunnerService:
             if self.active_run_id is not None:
                 raise RuntimeError("cannot run editable-task preflight while a run is active")
         snapshot = self._new_snapshot(RunMode.TEST)
+        completed_at = datetime.now(KST)
         ok, error, status = self._perform_preflight(snapshot)
+        completed_at = datetime.now(KST)
         with self._lock:
             if ok:
                 self.state = RunnerState.TESTED
                 self.last_error = None
                 self.last_error_info = None
-                self._event("info", "Preflight completed", {"status": status})
+                self._event(
+                    "info",
+                    "Preflight completed",
+                    {"httpStatus": status, "preflightCompletedAt": completed_at.isoformat(), "adapterVersion": snapshot.adapter_version, "mode": snapshot.mode.value},
+                    code="PREFLIGHT_COMPLETED",
+                    stage=RunStage.PRECHECK,
+                    run_id=snapshot.run_id,
+                )
             else:
                 self.state = RunnerState.DRAFT
                 self.last_error_info = error
                 self.last_error = f"{error.code.value}: {error.message}" if error else "preflight failed"
-                self._event("warning", self.last_error, {"status": status})
+                self._event(
+                    "warning",
+                    self.last_error,
+                    {"httpStatus": status, "preflightCompletedAt": completed_at.isoformat()},
+                    code=error.code.value if error else "PREFLIGHT_FAILED",
+                    stage=RunStage.PRECHECK,
+                    side_effect=SideEffectStatus.NONE,
+                    run_id=snapshot.run_id,
+                )
         return {"ok": ok, "status": status, "error": error.to_dict() if error else None}
 
     def _assert_recovery_clear(self) -> None:
@@ -275,12 +293,15 @@ class RunnerService:
                 "info",
                 "Runner armed",
                 {
-                    "target": snapshot.target_at.isoformat(),
-                    "runId": snapshot.run_id,
-                    "mode": snapshot.mode.value,
+                    "targetAt": snapshot.target_at.isoformat(),
+                    "armedAt": snapshot.armed_at.isoformat(),
                     "maxLatenessMs": snapshot.max_lateness_ms,
+                    "mode": snapshot.mode.value,
                     "adapterVersion": snapshot.adapter_version,
                 },
+                code="RUN_ARMED",
+                stage=RunStage.PRECHECK,
+                run_id=snapshot.run_id,
             )
             self._schedule_thread = threading.Thread(target=self._scheduled_run, daemon=True, name="scheduled-run")
             self._schedule_thread.start()
@@ -306,7 +327,13 @@ class RunnerService:
                 self.active_run_id = None
                 self.active_snapshot = None
                 self._schedule_lease = None
-                self._event("warning", "Runner cancelled before irreversible dispatch")
+                self._event(
+                    "warning",
+                    "Runner cancelled before irreversible dispatch",
+                    code="RUN_CANCELLED",
+                    stage=stage,
+                    run_id=run_id,
+                )
         return self.status()
 
     def run_now(self) -> dict[str, Any]:
@@ -334,7 +361,14 @@ class RunnerService:
             self.last_error_info = None
             self.last_checkout_number = None
             self._consent_handled = False
-            self._event("info", "Immediate TEST checkout accepted", {"runId": snapshot.run_id, "mode": snapshot.mode.value})
+            self._event(
+                "info",
+                "Immediate TEST checkout accepted",
+                {"mode": snapshot.mode.value, "adapterVersion": snapshot.adapter_version},
+                code="TEST_RUN_ACCEPTED",
+                stage=RunStage.DISPATCH,
+                run_id=snapshot.run_id,
+            )
             thread = threading.Thread(target=self._execute_checkout_flow, daemon=True, name="run-now")
             thread.start()
         return self.status()
@@ -351,12 +385,26 @@ class RunnerService:
             if not consent.ok:
                 raise RuntimeError(consent.reason or consent.category.value)
             self._consent_handled = True
-            self._event("info", "Configured consent was handled at the manual checkpoint")
+            self._event(
+                "info",
+                "Configured consent was handled at the manual checkpoint",
+                {"locatorKind": consent.safe_data.get("locatorKind")},
+                code="CONSENT_HANDLED",
+                stage=RunStage.CONSENT,
+                side_effect=SideEffectStatus.CONFIRMED,
+            )
         if open_payment:
             payment = self.browser.submit("click_first", locators.payment, timeout=20)
             if not payment.ok:
                 raise RuntimeError(payment.reason or payment.category.value)
-            self._event("warning", "Payment UI opened; final authorization remains manual")
+            self._event(
+                "warning",
+                "Payment UI opened; final authorization remains manual",
+                {"locatorKind": payment.safe_data.get("locatorKind")},
+                code="PAYMENT_UI_OPENED",
+                stage=RunStage.HANDOFF,
+                side_effect=SideEffectStatus.CONFIRMED,
+            )
         return self.status()
 
     def open_existing_checkout(self) -> dict[str, Any]:
@@ -367,12 +415,14 @@ class RunnerService:
             number = self.last_checkout_number
 
         _, navigation = self._execution_steps(snapshot)
+        started = datetime.now(KST)
         result = self.browser.submit(
             "navigate",
             navigation.navigation,
             {navigation.navigation.required_variable: number},
             timeout=40,
         )
+        finished = datetime.now(KST)
         if not result.ok:
             raise RuntimeError(result.reason or result.category.value)
 
@@ -387,15 +437,25 @@ class RunnerService:
             self._recovery_blocked = False
             self.last_error = None
             self.last_error_info = None
-            self._event("warning", "Existing confirmed checkout reopened; no new checkout was created")
+            self._event(
+                "warning",
+                "Existing confirmed checkout reopened; no new checkout was created",
+                {
+                    "checkoutNumber": number,
+                    "checkoutPageReadyAt": finished.isoformat(),
+                    "navigationLatencyMs": round((finished - started).total_seconds() * 1000, 3),
+                },
+                code="EXISTING_CHECKOUT_REOPENED",
+                stage=RunStage.HANDOFF,
+                side_effect=SideEffectStatus.CONFIRMED,
+                run_id=snapshot.run_id,
+            )
         return {"ok": True, "url": result.final_url, "checkoutNumber": number}
 
     def _validate_execution_snapshot(self, snapshot: ArmedRunSnapshot) -> None:
         validation = self.adapter.validate(snapshot)
         if validation.issues:
             raise ValueError("; ".join(issue.message for issue in validation.issues))
-        # Building the plan is also a live contract check. In particular, the
-        # adapter may refuse an irreversible step with UNKNOWN evidence.
         self.adapter.build_execution(snapshot)
 
     def _perform_preflight(self, snapshot: ArmedRunSnapshot) -> tuple[bool, ErrorInfo | None, int]:
@@ -408,14 +468,11 @@ class RunnerService:
             timeout=40,
         )
         if not open_result.ok:
-            return False, self._browser_error(
-                open_result,
-                snapshot.run_id,
-                RunStage.PRECHECK,
-                irreversible=False,
-            ), 0
+            return False, self._browser_error(open_result, snapshot.run_id, RunStage.PRECHECK, irreversible=False), 0
 
+        request_started = datetime.now(KST)
         result = self.browser.submit("request", request_step.request, timeout=40)
+        response_received = datetime.now(KST)
         if result.category is BrowserResultCategory.TRANSPORT_ERROR:
             return False, self._error_info(
                 ErrorCode.PREFLIGHT_TRANSIENT,
@@ -426,17 +483,29 @@ class RunnerService:
                 snapshot.run_id,
             ), 0
         if result.http_status is None:
-            return False, self._browser_error(
-                result,
-                snapshot.run_id,
-                RunStage.PRECHECK,
-                irreversible=False,
-            ), 0
+            return False, self._browser_error(result, snapshot.run_id, RunStage.PRECHECK, irreversible=False), 0
 
         parsed = self.adapter.parse_response(
             request_step.step_id,
             http_status=result.http_status,
             body_text=result.safe_body_text,
+        )
+        self._event(
+            "info" if parsed.status is AdapterParseStatus.PASS else "warning",
+            "Preflight response received",
+            {
+                "requestStartedAt": request_started.isoformat(),
+                "responseReceivedAt": response_received.isoformat(),
+                "responseLatencyMs": round((response_received - request_started).total_seconds() * 1000, 3),
+                "httpStatus": result.http_status,
+                "method": request_step.request.method,
+                "endpoint": request_step.step_id,
+                "adapterClassification": parsed.status.value,
+            },
+            code="PREFLIGHT_RESPONSE_RECEIVED",
+            stage=RunStage.PRECHECK,
+            step_id=request_step.step_id,
+            run_id=snapshot.run_id,
         )
         if parsed.status is AdapterParseStatus.PASS:
             return True, None, result.http_status
@@ -500,11 +569,7 @@ class RunnerService:
             return
 
         try:
-            self._persist_active_state(
-                state=RunnerState.PREWARMING,
-                stage=RunStage.PREWARM,
-                side_effect=SideEffectStatus.NONE,
-            )
+            self._persist_active_state(state=RunnerState.PREWARMING, stage=RunStage.PREWARM, side_effect=SideEffectStatus.NONE)
         except StoreError as exc:
             self._set_failure(self._error_info(
                 ErrorCode.LOCAL_STORAGE_FAILURE,
@@ -518,14 +583,28 @@ class RunnerService:
 
         with self._lock:
             self.state = RunnerState.PREWARMING
-            self._event("info", "Prewarming browser", {"schedulerLatenessMs": round(prewarm.lateness_ms, 3)})
+            self._event(
+                "info",
+                "Prewarming browser",
+                {"prewarmStartedAt": prewarm.wall_at.isoformat(), "schedulerLatenessMs": round(prewarm.lateness_ms, 3)},
+                code="PREWARM_STARTED",
+                stage=RunStage.PREWARM,
+                run_id=snapshot.run_id,
+            )
 
         preflight_ok, preflight_error, status = self._perform_preflight(snapshot)
         if not preflight_ok:
             assert preflight_error is not None
             self._set_failure(preflight_error)
             return
-        self._event("info", "Preflight passed", {"status": status})
+        self._event(
+            "info",
+            "Preflight passed",
+            {"httpStatus": status, "preflightCompletedAt": datetime.now(KST).isoformat()},
+            code="PREFLIGHT_COMPLETED",
+            stage=RunStage.PREWARM,
+            run_id=snapshot.run_id,
+        )
 
         target = lease.wait_for_target(self._cancel)
         if target.kind is SchedulerSignalKind.CANCELLED:
@@ -561,18 +640,19 @@ class RunnerService:
             ))
             return
 
-        self._event("info", "Scheduler target due", {
-            "schedulerWakeAt": target.wall_at.isoformat(),
-            "wakeLatenessMs": round(target.lateness_ms, 3),
-        })
+        self._event(
+            "info",
+            "Scheduler target due",
+            {"schedulerWakeAt": target.wall_at.isoformat(), "wakeLatenessMs": round(target.lateness_ms, 3), "targetAt": snapshot.target_at.isoformat()},
+            code="SCHEDULER_TARGET_DUE",
+            stage=RunStage.DISPATCH,
+            run_id=snapshot.run_id,
+        )
         self._execute_checkout_flow()
 
     def _execution_steps(self, snapshot: ArmedRunSnapshot) -> tuple[AdapterStep, AdapterStep]:
         plan: AdapterPlan = self.adapter.build_execution(snapshot)
-        irreversible = next(
-            (step for step in plan.steps if step.effect is StepEffect.IRREVERSIBLE and step.request is not None),
-            None,
-        )
+        irreversible = next((step for step in plan.steps if step.effect is StepEffect.IRREVERSIBLE and step.request is not None), None)
         navigation = next((step for step in plan.steps if step.navigation is not None), None)
         if irreversible is None or navigation is None:
             raise RuntimeError("adapter execution plan lacks irreversible request/navigation steps")
@@ -588,7 +668,12 @@ class RunnerService:
 
     def _execute_checkout_flow(self) -> None:
         if not self._execution_lock.acquire(blocking=False):
-            self._event("warning", "Duplicate execution signal blocked; authoritative run continues")
+            self._event(
+                "warning",
+                "Duplicate execution signal blocked; authoritative run continues",
+                code="DUPLICATE_BLOCKED",
+                stage=RunStage.DISPATCH,
+            )
             return
 
         try:
@@ -609,11 +694,7 @@ class RunnerService:
             assert navigation.navigation is not None
 
             try:
-                self._persist_active_state(
-                    state=RunnerState.RUNNING,
-                    stage=RunStage.DISPATCH,
-                    side_effect=SideEffectStatus.NONE,
-                )
+                self._persist_active_state(state=RunnerState.RUNNING, stage=RunStage.DISPATCH, side_effect=SideEffectStatus.NONE)
             except StoreError as exc:
                 self._set_failure(self._error_info(
                     ErrorCode.LOCAL_STORAGE_FAILURE,
@@ -627,20 +708,46 @@ class RunnerService:
 
             with self._lock:
                 self.state = RunnerState.RUNNING
-                self._event("info", "Irreversible request dispatch started", {"dispatchAt": datetime.now(KST).isoformat()})
 
-            # R6 invariant: exactly one dispatch attempt. There is deliberately no
-            # generic retry loop around this irreversible request.
+            request_started = datetime.now(KST)
+            dispatch_lateness_ms = max(0.0, (request_started - snapshot.target_at).total_seconds() * 1000) if snapshot.mode is RunMode.LIVE else 0.0
+            self._event(
+                "info",
+                "Irreversible request dispatch started",
+                {
+                    "requestStartedAt": request_started.isoformat(),
+                    "targetAt": snapshot.target_at.isoformat(),
+                    "dispatchLatenessMs": round(dispatch_lateness_ms, 3),
+                    "method": irreversible.request.method,
+                    "endpoint": irreversible.step_id,
+                },
+                code="REQUEST_STARTED",
+                stage=RunStage.DISPATCH,
+                step_id=irreversible.step_id,
+                side_effect=SideEffectStatus.AMBIGUOUS,
+                run_id=snapshot.run_id,
+            )
+
             browser_result: BrowserResult = self.browser.submit("request", irreversible.request, timeout=30)
+            response_received = datetime.now(KST)
+            self._event(
+                "info" if browser_result.http_status is not None else "warning",
+                "Irreversible request result received",
+                {
+                    "responseReceivedAt": response_received.isoformat(),
+                    "responseLatencyMs": round((response_received - request_started).total_seconds() * 1000, 3),
+                    "httpStatus": browser_result.http_status,
+                    "endpoint": irreversible.step_id,
+                },
+                code="RESPONSE_RECEIVED",
+                stage=RunStage.DISPATCH,
+                step_id=irreversible.step_id,
+                side_effect=SideEffectStatus.AMBIGUOUS,
+                run_id=snapshot.run_id,
+            )
 
             if browser_result.http_status is None:
-                error = self._browser_error(
-                    browser_result,
-                    snapshot.run_id,
-                    RunStage.DISPATCH,
-                    irreversible=True,
-                )
-                self._set_failure(error)
+                self._set_failure(self._browser_error(browser_result, snapshot.run_id, RunStage.DISPATCH, irreversible=True))
                 return
 
             parsed = self.adapter.parse_response(
@@ -702,20 +809,27 @@ class RunnerService:
 
             self.last_checkout_number = str(dynamic_value)
             safe_variables = dict(parsed.next_variables)
+            parsed_at = datetime.now(KST)
             self._persist_active_state(
                 state=RunnerState.RUNNING,
                 stage=RunStage.NAVIGATE,
                 side_effect=SideEffectStatus.CONFIRMED,
                 safe_variables=safe_variables,
             )
-            self._event("info", "Irreversible step confirmed", {"dynamicVariable": dynamic_name})
-
-            navigation_result = self.browser.submit(
-                "navigate",
-                navigation.navigation,
-                safe_variables,
-                timeout=40,
+            self._event(
+                "info",
+                "Irreversible step confirmed",
+                {"dynamicVariable": dynamic_name, "checkoutNumber": self.last_checkout_number, "checkoutParsedAt": parsed_at.isoformat(), "adapterClassification": parsed.status.value},
+                code="CHECKOUT_CONFIRMED",
+                stage=RunStage.PARSE,
+                step_id=irreversible.step_id,
+                side_effect=SideEffectStatus.CONFIRMED,
+                run_id=snapshot.run_id,
             )
+
+            navigation_started = datetime.now(KST)
+            navigation_result = self.browser.submit("navigate", navigation.navigation, safe_variables, timeout=40)
+            navigation_finished = datetime.now(KST)
             if not navigation_result.ok:
                 self._set_failure(self._error_info(
                     ErrorCode.NAVIGATION_AFTER_SIDE_EFFECT,
@@ -727,22 +841,66 @@ class RunnerService:
                 ))
                 return
 
+            self._event(
+                "info",
+                "Checkout page opened",
+                {"checkoutPageReadyAt": navigation_finished.isoformat(), "navigationLatencyMs": round((navigation_finished - navigation_started).total_seconds() * 1000, 3), "checkoutNumber": self.last_checkout_number},
+                code="CHECKOUT_PAGE_READY",
+                stage=RunStage.NAVIGATE,
+                step_id=navigation.step_id,
+                side_effect=SideEffectStatus.CONFIRMED,
+                run_id=snapshot.run_id,
+            )
+
             locators = self.adapter.locators(snapshot)
             if snapshot.manual_boundary.auto_consent:
                 consent = self.browser.submit("ensure_checked", locators.consent, timeout=20)
                 if consent.ok:
                     self._consent_handled = True
-                    self._event("info", "Configured consent handled")
+                    self._event(
+                        "info",
+                        "Configured consent handled",
+                        {"locatorKind": consent.safe_data.get("locatorKind")},
+                        code="CONSENT_HANDLED",
+                        stage=RunStage.CONSENT,
+                        side_effect=SideEffectStatus.CONFIRMED,
+                        run_id=snapshot.run_id,
+                    )
                 else:
-                    self._event("warning", "Consent automation unavailable; handing off manually", {"reason": consent.reason or consent.category.value})
+                    self._event(
+                        "warning",
+                        "Consent automation unavailable; handing off manually",
+                        {"reason": consent.reason or consent.category.value},
+                        code="CONSENT_MANUAL_FALLBACK",
+                        stage=RunStage.CONSENT,
+                        side_effect=SideEffectStatus.CONFIRMED,
+                        run_id=snapshot.run_id,
+                    )
 
             if snapshot.manual_boundary.open_payment_ui and (not snapshot.manual_boundary.auto_consent or self._consent_handled):
                 payment = self.browser.submit("click_first", locators.payment, timeout=20)
                 if payment.ok:
-                    self._event("warning", "Payment UI opened; final authorization remains manual")
+                    self._event(
+                        "warning",
+                        "Payment UI opened; final authorization remains manual",
+                        {"locatorKind": payment.safe_data.get("locatorKind")},
+                        code="PAYMENT_UI_OPENED",
+                        stage=RunStage.HANDOFF,
+                        side_effect=SideEffectStatus.CONFIRMED,
+                        run_id=snapshot.run_id,
+                    )
                 else:
-                    self._event("warning", "Payment UI could not be opened automatically; handing off manually", {"reason": payment.reason or payment.category.value})
+                    self._event(
+                        "warning",
+                        "Payment UI could not be opened automatically; handing off manually",
+                        {"reason": payment.reason or payment.category.value},
+                        code="PAYMENT_UI_MANUAL_FALLBACK",
+                        stage=RunStage.HANDOFF,
+                        side_effect=SideEffectStatus.CONFIRMED,
+                        run_id=snapshot.run_id,
+                    )
 
+            checkpoint_at = datetime.now(KST)
             self._persist_active_state(
                 state=RunnerState.WAITING_MANUAL,
                 stage=RunStage.HANDOFF,
@@ -752,11 +910,18 @@ class RunnerService:
             with self._lock:
                 self.state = RunnerState.WAITING_MANUAL
                 self._recovery_blocked = False
-                self._event("warning", "Manual payment checkpoint reached; runner will not authorize payment")
+                self._event(
+                    "warning",
+                    "Manual payment checkpoint reached; runner will not authorize payment",
+                    {"manualCheckpointAt": checkpoint_at.isoformat(), "checkoutNumber": self.last_checkout_number},
+                    code="MANUAL_CHECKPOINT_REACHED",
+                    stage=RunStage.HANDOFF,
+                    side_effect=SideEffectStatus.CONFIRMED,
+                    run_id=snapshot.run_id,
+                )
         except Exception as exc:
             snapshot = self.active_snapshot
             run_id = snapshot.run_id if snapshot else (self.active_run_id or "unknown")
-            # An unexpected exception after RUNNING is conservatively ambiguous.
             effect = SideEffectStatus.AMBIGUOUS if self.state is RunnerState.RUNNING else SideEffectStatus.NONE
             self._set_failure(self._error_info(
                 ErrorCode.INTERNAL_ERROR,
@@ -769,14 +934,7 @@ class RunnerService:
         finally:
             self._execution_lock.release()
 
-    def _browser_error(
-        self,
-        result: BrowserResult,
-        run_id: str,
-        stage: RunStage,
-        *,
-        irreversible: bool,
-    ) -> ErrorInfo:
+    def _browser_error(self, result: BrowserResult, run_id: str, stage: RunStage, *, irreversible: bool) -> ErrorInfo:
         if irreversible:
             return self._error_info(
                 ErrorCode.TRANSPORT_AMBIGUOUS,
@@ -787,10 +945,7 @@ class RunnerService:
                 run_id,
                 result.http_status,
             )
-        code = ErrorCode.BROWSER_DISCONNECTED if result.category in {
-            BrowserResultCategory.BROWSER_UNAVAILABLE,
-            BrowserResultCategory.PROFILE_IN_USE,
-        } else ErrorCode.INTERNAL_ERROR
+        code = ErrorCode.BROWSER_DISCONNECTED if result.category in {BrowserResultCategory.BROWSER_UNAVAILABLE, BrowserResultCategory.PROFILE_IN_USE} else ErrorCode.INTERNAL_ERROR
         return self._error_info(
             code,
             stage,
@@ -858,15 +1013,52 @@ class RunnerService:
                         pass
                     self._recovery_blocked = True
 
-            self._event("error", self.last_error)
+            self._event(
+                "error",
+                self.last_error,
+                {"httpStatus": error.http_status} if error.http_status is not None else {},
+                code=error.code.value,
+                stage=error.stage,
+                side_effect=error.side_effect,
+                run_id=error.run_id,
+            )
 
-    def _event(self, level: str, message: str, detail: dict[str, Any] | None = None) -> None:
-        # R7 replaces this compatibility logger with typed/redacted RunEvent persistence.
-        event = Event(at=datetime.now(KST).isoformat(), level=level, message=message, detail=detail or {})
+    @staticmethod
+    def _stage_for_state(state: RunnerState) -> RunStage:
+        if state is RunnerState.PREWARMING:
+            return RunStage.PREWARM
+        if state is RunnerState.RUNNING:
+            return RunStage.DISPATCH
+        if state is RunnerState.WAITING_MANUAL:
+            return RunStage.HANDOFF
+        return RunStage.PRECHECK
+
+    def _event(
+        self,
+        level: str,
+        message: str,
+        detail: Mapping[str, Any] | None = None,
+        *,
+        code: str = "EVENT",
+        stage: RunStage | None = None,
+        step_id: str | None = None,
+        side_effect: SideEffectStatus = SideEffectStatus.NONE,
+        run_id: str | None = None,
+    ) -> RunEvent:
+        event = self.event_logger.emit(
+            run_id=run_id or self.active_run_id or "control",
+            state=self.state,
+            stage=stage or self._stage_for_state(self.state),
+            step_id=step_id,
+            level=level,
+            code=code,
+            message=message,
+            side_effect=side_effect,
+            safe_detail=detail or {},
+            at=datetime.now(KST),
+        )
         with self._lock:
             self.events.append(event)
-            try:
-                with self.log_path.open("a", encoding="utf-8") as handle:
-                    handle.write(json.dumps(event.to_dict(), ensure_ascii=False) + "\n")
-            except OSError:
-                pass
+            if len(self.events) > 60:
+                self.events = self.events[-60:]
+        return event
