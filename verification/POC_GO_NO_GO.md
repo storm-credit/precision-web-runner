@@ -19,7 +19,7 @@
 - [x] PASS Acceptance matrix approved
 - [x] PASS Architecture Spike KEEP/CHANGE/DELETE inventory completed
 
-Design baseline is approved for implementation-ready planning. This does **not** authorize coding or LIVE use by itself.
+Design baseline is approved for implementation-ready planning. This does **not** authorize LIVE use by itself.
 
 ## B. Target contract gate — T1 Signature
 
@@ -39,12 +39,12 @@ Until the two unchecked rows pass: LIVE = NO-GO.
 - [x] file-level KEEP/CHANGE/MOVE/DELETE inventory exists
 - [x] design-to-code gap matrix exists
 - [x] high-risk mismatch cluster identified
-- [ ] R1-R10 task plan maps every runtime change to Gap IDs + tests
-- [ ] Harness Gate 6 Implementation Ready passes
+- [x] R1-R10 task plan maps every runtime change to Gap IDs + tests
+- [x] Harness Gate 6 Implementation Ready passes
 - [ ] explicit user coding approval received
 - [ ] reconciled runtime passes automated verification
 
-Unchecked rows here block runtime coding/completion claims, but are separate from target-site eligibility.
+Coding remains frozen until the explicit coding-approval row passes.
 
 ## D. Local environment gate
 
@@ -125,15 +125,18 @@ If any mandatory gate is BLOCKED/UNKNOWN, use the normal manual site flow or fix
 
 ## Current status
 
-**NO-GO / IMPLEMENTATION-READY PLANNING.**
+**NO-GO / CODING APPROVAL PENDING.**
 
 Passed:
 - Deep Design + Harness baseline
 - design review
 - Architecture Spike reconciliation inventory
+- Gap Matrix
+- R1-R10 implementation-ready plan
+- Harness Gate 6 review
 
 Still blocking:
-- final R1-R10 implementation-ready plan + explicit coding approval
+- explicit runtime coding approval
 - runtime reconciliation and verification
 - Signature `shippingType`
 - Windows/browser rehearsal
