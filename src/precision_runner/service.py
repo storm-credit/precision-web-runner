@@ -88,9 +88,6 @@ class RunnerService:
             self.state = RunnerState.DRAFT
             return
 
-        # POC recovery is intentionally fail-closed. No active run is silently
-        # resumed after process restart, regardless of whether it was ARMED,
-        # PREWARMING, RUNNING, or waiting at a manual checkpoint.
         self.active_snapshot = prior.snapshot
         self.active_run_id = prior.snapshot.run_id
         self.state = RunnerState.FAILED
@@ -108,9 +105,6 @@ class RunnerService:
             task.max_retries = 0
             return task
         except Exception:
-            # Legacy task.json is Architecture Spike compatibility data. The
-            # versioned LocalStore introduced in R2 does not silently ignore
-            # corruption; this legacy path is removed in later migration slices.
             return TaskConfig()
 
     def _task_definition(self, mode: RunMode) -> TaskDefinition:
@@ -122,9 +116,6 @@ class RunnerService:
             adapter_id=str(getattr(self.adapter, "name", "unknown")),
             adapter_version=adapter_version,
             mode=mode,
-            # R2 deliberately does not teach the orchestrator individual T1
-            # fields. The legacy object is captured as one adapter-scoped value
-            # until the real Adapter Contract migration in R4.
             adapter_variables={"legacy_task_config": self.task.to_dict()},
             prewarm_lead_ms=30_000,
             max_lateness_ms=2_000,
@@ -143,7 +134,6 @@ class RunnerService:
 
     def save_task(self, data: dict[str, Any]) -> dict[str, Any]:
         task = TaskConfig.from_dict(data)
-        # Live POC dashboard intentionally disables automatic replay by default.
         task.max_retries = 0
         errors = task.validate(require_shipping_confirmation=False)
         if errors:
@@ -153,8 +143,6 @@ class RunnerService:
                 raise RuntimeError("Cannot edit task while a run is active or awaiting recovery")
             self.task = task
             self.task_path.write_text(json.dumps(task.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
-            # Begin dual-writing the approved generic editable contract without
-            # deleting the legacy task.json until later adapter/API migration.
             self.store.save_task(self._task_definition(RunMode.TEST))
             self._event("info", "Task saved")
         return task.to_dict()
@@ -191,20 +179,24 @@ class RunnerService:
             raise RuntimeError("recovery inspection is required before another run can be armed")
 
     def arm(self) -> dict[str, Any]:
+        with self._lock:
+            self._assert_recovery_clear()
+            if self.state in _ACTIVE_STATES:
+                raise RuntimeError("runner is already armed or running")
+
         errors = self.adapter.validate_target(self.task)
         if errors:
             raise ValueError("; ".join(errors))
         target = self.task.target_datetime()
         if target <= datetime.now(target.tzinfo):
             raise ValueError("target time is in the past")
+
         with self._lock:
             self._assert_recovery_clear()
             if self.state in _ACTIVE_STATES:
                 raise RuntimeError("runner is already armed or running")
 
             snapshot = self._new_snapshot(RunMode.LIVE)
-            # Critical R2 ordering: durable snapshot first, scheduler second.
-            # StoreError propagates before any state/thread/browser work begins.
             self.store.create_active_run(
                 snapshot,
                 state=RunnerState.ARMED,
@@ -247,9 +239,15 @@ class RunnerService:
         return self.status()
 
     def run_now(self) -> dict[str, Any]:
+        with self._lock:
+            self._assert_recovery_clear()
+            if self.state in _ACTIVE_STATES:
+                raise RuntimeError("runner is already armed or running")
+
         errors = self.adapter.validate_target(self.task)
         if errors:
             raise ValueError("; ".join(errors))
+
         with self._lock:
             self._assert_recovery_clear()
             if self.state in _ACTIVE_STATES:
@@ -445,9 +443,6 @@ class RunnerService:
 
             if self.active_run_id is not None:
                 run_id = self.active_run_id
-                # Once dispatch has begun, preserve the active record for manual
-                # recovery review. R6 will refine exact semantic classification;
-                # R2's rule is deliberately conservative and never replays.
                 if previous_state == RunnerState.RUNNING:
                     try:
                         self.store.update_active_run(
@@ -482,7 +477,6 @@ class RunnerService:
         event = Event(at=datetime.now(KST).isoformat(), level=level, message=message, detail=detail or {})
         with self._lock:
             self.events.append(event)
-            # Intentionally log only structured, redacted fields. Never raw cookies or response bodies.
             try:
                 with self.log_path.open("a", encoding="utf-8") as handle:
                     handle.write(json.dumps(event.to_dict(), ensure_ascii=False) + "\n")
