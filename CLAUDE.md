@@ -2,25 +2,28 @@
 
 ## 0. Current phase
 
-**IMPLEMENTATION-READY PLANNING — RUNTIME CODE FROZEN.**
+**CONTROLLED IMPLEMENTATION — R1 COMPLETE, R2 NEXT.**
 
-The user explicitly wants coding to happen last. Deep Design + Harness are complete, and the Architecture Spike has been classified in `design/IMPLEMENTATION_RECONCILIATION.md` and `verification/IMPLEMENTATION_GAP_MATRIX.md`.
+Deep Design + Harness + Implementation Reconciliation are complete, Harness Gate 6 passed, and the user explicitly approved continuing into coding. Runtime work is now allowed **only one approved R-slice at a time** according to `design/IMPLEMENTATION_READY_PLAN.md`.
 
 Current permission:
-- design/reconciliation/planning documents: allowed
-- `src/`, `tests/`, `scripts/`, runtime dependencies: **do not modify yet**
-- new features: prohibited
+- current approved slice (`status/NEXT_ACTION.md`): allowed
+- tests/checks for that slice: required first where practical
+- unrelated `src/`, `tests/`, `scripts/`, dependencies: prohibited
+- speculative/future features: prohibited
 
-Runtime coding begins only after explicit user approval of the final implementation-ready R1-R10 plan.
+R1 Domain Contracts is complete and reviewed. R2 Local Store / Atomic ARM / Restart Safety is next. Do not start R3 implicitly inside R2.
 
 Read first:
 1. `status/CURRENT_STATUS.md`
 2. `status/NEXT_ACTION.md`
-3. `harness/GATES.md`
-4. `docs/POC_SCOPE.md`
-5. `design/IMPLEMENTATION_RECONCILIATION.md`
-6. `verification/IMPLEMENTATION_GAP_MATRIX.md`
-7. remaining `design/*` and `verification/*`
+3. `harness/IMPLEMENTATION_GATE_CHECKLIST.md`
+4. `harness/GATES.md`
+5. `docs/POC_SCOPE.md`
+6. `design/IMPLEMENTATION_READY_PLAN.md`
+7. `design/IMPLEMENTATION_RECONCILIATION.md`
+8. `verification/IMPLEMENTATION_GAP_MATRIX.md`
+9. remaining `design/*` and `verification/*`
 
 ## 1. Operating principles
 
@@ -47,18 +50,20 @@ If multiple interpretations materially change the result, surface them instead o
 7. Design Review
 8. User approval
 9. Implementation reconciliation + implementation-ready plan
-10. **Explicit coding approval**
-11. Tests/checks first where practical
-12. Minimal implementation
-13. Spec/security review
-14. Verification with evidence
-15. Update decisions/deviations/current status
+10. Explicit coding approval
+11. Select exactly one R-slice
+12. Tests/checks first where practical
+13. Minimal implementation
+14. Spec/security review
+15. Verification with evidence
+16. Update decisions/deviations/current status
+17. Only then make the next R-slice eligible
 
-During the current phase, stop at step 9.
+During the current phase, follow `status/NEXT_ACTION.md`; do not batch later R-slices into the current change.
 
 ## 3. Harness gates
 
-`harness/GATES.md` is mandatory.
+`harness/GATES.md` and `harness/IMPLEMENTATION_GATE_CHECKLIST.md` are mandatory.
 
 Finding severity:
 - BLOCKER — must resolve before implementation
@@ -66,12 +71,15 @@ Finding severity:
 - MINOR — may defer
 - NOTE — informational
 
-Gate 6 Implementation Ready requires:
-- approved design
-- no unresolved design BLOCKER
-- every coding task mapped to a design contract + Gap ID + test/evidence
-- existing spike code classified KEEP/CHANGE/DELETE
-- no speculative feature work
+Every implementation slice must:
+- be an approved R1-R10 slice
+- name Gap IDs
+- name design authority files
+- define tests/checks and completion evidence
+- preserve safety/site boundaries
+- update status after verification
+
+A failed implementation-gate checkbox stops the slice or triggers replanning.
 
 ## 4. POC goal
 
@@ -120,7 +128,7 @@ If the target server rejects the action because it is not permitted, stop and re
 
 ## 7. Architecture source of truth
 
-Deep design under `design/` is authoritative. Existing runtime is Architecture Spike evidence.
+Deep design under `design/` is authoritative. Existing pre-reconciliation runtime is Architecture Spike evidence, and each approved R-slice migrates it toward the design contracts.
 
 Core boundaries:
 - Control UI
@@ -150,6 +158,8 @@ Must preserve:
 - no misleading cancel after irreversible dispatch
 - WAITING_MANUAL is not PAID
 - restart/ambiguous outcome never silently replays
+
+R1 established the domain-contract types. Later slices must migrate active runtime behavior onto them rather than expanding the legacy compatibility layer.
 
 ## 9. Browser/session rules
 
@@ -250,22 +260,23 @@ LIVE requires explicit confirmation summary. RUNNING cannot offer fake undo. AMB
 
 Every visible control must map to real behavior or a clear disabled reason.
 
-## 15. Reconciliation rules
+## 15. Reconciliation / implementation rules
 
-Before code, use:
+Use:
 - `design/IMPLEMENTATION_RECONCILIATION.md`
 - `verification/IMPLEMENTATION_GAP_MATRIX.md`
+- `design/IMPLEMENTATION_READY_PLAN.md`
 
-Every future coding task must state:
+Every coding task must state:
 - R-slice (R1-R10)
-- Gap IDs closed
+- Gap IDs addressed
 - design contract satisfied
 - files allowed to change
 - test/check written first or why not
 - completion evidence
 - rollback boundary
 
-Do not rewrite from scratch unless a later evidence-backed design review proves the current foundation unusable.
+Prefer one reviewable commit/PR slice per R-number. Do not rewrite from scratch unless evidence-backed review proves the approved reconciliation path unusable.
 
 ## 16. Interview/question rule
 
@@ -275,7 +286,7 @@ Do not re-ask resolved questions. Unknown target-site facts remain UNKNOWN; neve
 
 ## 17. Blindspot / trap rule
 
-Before coding approval, re-check:
+Before each coding slice, re-check:
 - architecture boundaries
 - auth/session lifecycle
 - timing/sleep/recovery
@@ -290,7 +301,7 @@ Reject shortcuts such as browser-only precision timers, hardcoded dynamic IDs, g
 
 ## 18. Testing/verification rules
 
-`verification/ACCEPTANCE_MATRIX.md` and `verification/IMPLEMENTATION_GAP_MATRIX.md` define evidence.
+`verification/ACCEPTANCE_MATRIX.md`, `verification/IMPLEMENTATION_GAP_MATRIX.md`, and per-slice review evidence define completion.
 
 Code review alone is insufficient for browser/timing/live behavior.
 
@@ -308,7 +319,7 @@ Unknown mandatory rows = NO-GO.
 
 ## 19. Change/deviation rule
 
-If reality differs from approved design, update `docs/DEVIATIONS.md` before claiming completion.
+If reality differs materially from approved design or implementation-ready plan, update `docs/DEVIATIONS.md` before claiming completion.
 
 Record original plan, changed area, what/why, impact, reversibility, follow-up verification, and user-approval need.
 
