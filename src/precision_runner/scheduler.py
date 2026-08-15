@@ -42,6 +42,7 @@ class SchedulerSignal:
     monotonic_at: float
     lateness_ms: float = 0.0
     clock_skew_ms: float = 0.0
+    wait_overshoot_ms: float = 0.0
 
 
 class Clock(Protocol):
@@ -68,8 +69,9 @@ class Scheduler:
 
     Target permission time is never shifted earlier. The wall clock is sampled
     only to convert the configured target into a monotonic deadline and to
-    detect later clock discontinuity. Live timing quality is measured later in
-    R10; this class only makes the contract deterministic and observable.
+    detect later discontinuity. A severe wait overshoot is also treated as a
+    discontinuity so a suspend/stall is not missed merely because wall and
+    monotonic clocks advanced together.
     """
 
     def __init__(
@@ -77,11 +79,15 @@ class Scheduler:
         *,
         clock: Clock | None = None,
         clock_discontinuity_tolerance_ms: int = 1_000,
+        wait_discontinuity_tolerance_ms: int = 1_000,
     ):
         if clock_discontinuity_tolerance_ms < 0:
             raise ValueError("clock_discontinuity_tolerance_ms must be non-negative")
+        if wait_discontinuity_tolerance_ms < 0:
+            raise ValueError("wait_discontinuity_tolerance_ms must be non-negative")
         self.clock = clock or SystemClock()
         self.clock_discontinuity_tolerance_ms = clock_discontinuity_tolerance_ms
+        self.wait_discontinuity_tolerance_ms = wait_discontinuity_tolerance_ms
 
     def arm(self, request: ScheduleRequest) -> "SchedulerLease":
         request.validate()
@@ -106,6 +112,7 @@ class Scheduler:
             prewarm_deadline=prewarm_deadline,
             target_deadline=target_deadline,
             clock_discontinuity_tolerance_ms=self.clock_discontinuity_tolerance_ms,
+            wait_discontinuity_tolerance_ms=self.wait_discontinuity_tolerance_ms,
         )
 
 
@@ -120,6 +127,7 @@ class SchedulerLease:
         prewarm_deadline: float,
         target_deadline: float,
         clock_discontinuity_tolerance_ms: int,
+        wait_discontinuity_tolerance_ms: int,
     ):
         self.request = request
         self.clock = clock
@@ -128,6 +136,7 @@ class SchedulerLease:
         self.prewarm_deadline = prewarm_deadline
         self.target_deadline = target_deadline
         self.clock_discontinuity_tolerance_ms = clock_discontinuity_tolerance_ms
+        self.wait_discontinuity_tolerance_ms = wait_discontinuity_tolerance_ms
         self._prewarm_signal: SchedulerSignal | None = None
         self._target_signal: SchedulerSignal | None = None
         self._lock = threading.Lock()
@@ -179,16 +188,24 @@ class SchedulerLease:
             if remaining <= 0:
                 break
 
-            # Chunk waits so cancellation and wall/monotonic divergence are
-            # observed during long waits while still tightening near deadline.
             if remaining > 2.0:
                 sleep_for = min(0.5, remaining - 1.0)
             elif remaining > 0.2:
                 sleep_for = min(0.05, remaining / 2.0)
             else:
                 sleep_for = min(0.005, remaining)
-            if self.clock.wait(cancel, max(0.001, sleep_for)):
+            sleep_for = max(0.001, sleep_for)
+
+            before_wait = self.clock.monotonic()
+            if self.clock.wait(cancel, sleep_for):
                 return self._signal(SchedulerSignalKind.CANCELLED, deadline)
+            after_wait = self.clock.monotonic()
+            wait_overshoot_ms = max(0.0, (after_wait - before_wait - sleep_for) * 1000.0)
+            if wait_overshoot_ms > self.wait_discontinuity_tolerance_ms:
+                return self._discontinuity_signal(
+                    deadline,
+                    wait_overshoot_ms=wait_overshoot_ms,
+                )
 
         discontinuity = self._clock_discontinuity_signal(deadline)
         if discontinuity is not None:
@@ -207,6 +224,7 @@ class SchedulerLease:
                 monotonic_at=signal.monotonic_at,
                 lateness_ms=signal.lateness_ms,
                 clock_skew_ms=signal.clock_skew_ms,
+                wait_overshoot_ms=signal.wait_overshoot_ms,
             )
         return signal
 
@@ -225,6 +243,26 @@ class SchedulerLease:
             monotonic_at=now_mono,
             lateness_ms=max(0.0, (now_mono - deadline) * 1000.0),
             clock_skew_ms=skew_ms,
+        )
+
+    def _discontinuity_signal(
+        self,
+        deadline: float,
+        *,
+        wait_overshoot_ms: float,
+    ) -> SchedulerSignal:
+        now_mono = self.clock.monotonic()
+        now_wall = self.clock.wall_now()
+        wall_elapsed = (now_wall - self.wall_at_arm).total_seconds()
+        mono_elapsed = now_mono - self.monotonic_at_arm
+        return SchedulerSignal(
+            kind=SchedulerSignalKind.CLOCK_DISCONTINUITY,
+            run_id=self.request.run_id,
+            wall_at=now_wall,
+            monotonic_at=now_mono,
+            lateness_ms=max(0.0, (now_mono - deadline) * 1000.0),
+            clock_skew_ms=(wall_elapsed - mono_elapsed) * 1000.0,
+            wait_overshoot_ms=wait_overshoot_ms,
         )
 
     def _signal(self, kind: SchedulerSignalKind, deadline: float) -> SchedulerSignal:
