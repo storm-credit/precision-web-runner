@@ -2,49 +2,50 @@
 
 ## Single next objective
 
-**User review / approval of the Deep Design + Harness baseline.**
+Complete the **Implementation-Ready Plan** while keeping runtime code frozen.
 
-The design package is internally reviewed and has no unresolved design BLOCKER. Runtime remains frozen.
+The Deep Design baseline has been reviewed, the user instructed the project to continue, and the existing Architecture Spike has now been classified file-by-file in `design/IMPLEMENTATION_RECONCILIATION.md`.
 
-## Review order
+## Required planning order
 
-1. `status/CURRENT_STATUS.md`
-2. `design/DESIGN_REVIEW_REPORT.md`
-3. `design/DEEP_BLINDSPOT_REVIEW.md`
-4. `design/SYSTEM_DESIGN.md`
-5. `design/COMPONENT_CONTRACTS.md`
-6. `design/STATE_MACHINE.md`
-7. `design/ERROR_POLICY.md`
-8. `design/TIMING_DESIGN.md`
-9. `design/SECURITY_MODEL.md`
-10. `design/ADAPTER_SPEC.md`
-11. `design/UI_SPEC.md`
-12. `verification/ACCEPTANCE_MATRIX.md`
-13. `verification/POC_GO_NO_GO.md`
+1. Read `status/CURRENT_STATUS.md`.
+2. Read `design/IMPLEMENTATION_RECONCILIATION.md`.
+3. Read `verification/IMPLEMENTATION_GAP_MATRIX.md`.
+4. Map each future implementation slice to one or more Gap IDs.
+5. For each slice, name the design contract it satisfies.
+6. Define tests/checks **before** code changes.
+7. Define completion evidence and rollback boundary.
+8. Verify dependency order so no unsafe half-state is introduced.
+9. Re-run Harness Gate 6 — Implementation Ready.
+10. Present the final plan for explicit user coding approval.
 
-## Decisions to notice during approval
+## Planned slices
 
-- existing runtime is an Architecture Spike, not final design
-- dedicated Chrome profile remains the session strategy
-- live POC dashboard defaults to localhost-only
-- responsive mobile/narrow UI remains, but remote phone control is deferred
-- LIVE checkout POST automatic replay is disabled
-- ambiguous irreversible outcome requires manual inspection
-- target action is never intentionally dispatched before the permitted opening time
-- final payment authorization remains manual
+- R1 Domain contracts: TaskDefinition, ArmedRunSnapshot, RunId, Mode, state/error/event types
+- R2 Local Store + atomic ARM + restart inspection
+- R3 Scheduler/timing/discontinuity/telemetry
+- R4 Adapter Contract v1 + T1 migration
+- R5 Generic BrowserBridge + origin/profile guards
+- R6 Orchestrator + side-effect-aware Error Policy
+- R7 Observability/redaction/retention
+- R8 Local Control API hardening
+- R9 Concept 02 UI reconciliation + TEST/LIVE/blockers
+- R10 Windows evidence gates + safe rehearsals
 
-## If approved
+## Do not do next
 
-Next technical phase is **Implementation Reconciliation**, starting with a KEEP / CHANGE / DELETE inventory of existing prototype code against the approved contracts.
+- do not modify `src/`, `tests/`, `scripts/`, or dependencies
+- do not add features outside reconciliation
+- do not add second-site support
+- do not enable LAN/remote phone control
+- do not automate final payment authorization
+- do not guess Signature `shippingType`
+- do not perform irreversible live target requests merely to collect evidence
 
-Do not jump directly to feature additions.
+## Coding trigger
 
-## If not approved
-
-Change the design documents first, re-run `prompts/DESIGN_REVIEW_PROMPT.md`, update `docs/DEVIATIONS.md` if the plan changed materially, and keep runtime frozen.
+Runtime implementation begins only after the user explicitly approves the final R1-R10 implementation plan.
 
 ## LIVE remains separate
 
-Design approval does not equal live approval.
-
-LIVE requires all mandatory evidence in `verification/POC_GO_NO_GO.md`, including Signature `shippingType`, Windows/browser rehearsal, timing measurements, and target-contract freshness.
+Even after coding approval/completion, LIVE remains NO-GO until all mandatory target/environment/rehearsal/timing/failure/UI/day-of-live gates pass in `verification/POC_GO_NO_GO.md`.
