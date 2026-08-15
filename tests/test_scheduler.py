@@ -111,8 +111,6 @@ class SchedulerTests(unittest.TestCase):
         lease = Scheduler(clock=clock).arm(self.request(late_ms=500))
         cancel = threading.Event()
 
-        # Simulate oversleep/CPU stall using monotonic time. Keep wall in step so
-        # this is lateness rather than a wall-clock discontinuity.
         clock.jump_monotonic(61.0)
         clock.jump_wall(61.0)
         signal = lease.wait_for_target(cancel)
@@ -141,6 +139,24 @@ class SchedulerTests(unittest.TestCase):
 
         self.assertEqual(signal.kind, SchedulerSignalKind.CLOCK_DISCONTINUITY)
         self.assertGreater(abs(signal.clock_skew_ms), 500)
+
+    def test_wait_oversleep_is_discontinuity_even_when_wall_and_monotonic_match(self):
+        clock = FakeClock(self.start)
+        lease = Scheduler(
+            clock=clock,
+            wait_discontinuity_tolerance_ms=500,
+        ).arm(self.request())
+        cancel = threading.Event()
+
+        # Simulate suspend or a severe scheduler stall during a normal 0.5s wait.
+        # Both clocks advance together, so wall-vs-monotonic skew alone is zero.
+        clock.wall_extra_per_wait = 5.0
+        clock.monotonic_extra_per_wait = 5.0
+        signal = lease.wait_for_prewarm(cancel)
+
+        self.assertEqual(signal.kind, SchedulerSignalKind.CLOCK_DISCONTINUITY)
+        self.assertGreater(signal.wait_overshoot_ms, 500)
+        self.assertLess(abs(signal.clock_skew_ms), 1)
 
     def test_prewarm_due_immediately_when_armed_inside_prewarm_window(self):
         clock = FakeClock(self.start)
