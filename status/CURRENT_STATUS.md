@@ -2,84 +2,67 @@
 
 ## Phase
 
-**IMPLEMENTATION-READY PLAN COMPLETE — EXPLICIT CODING APPROVAL PENDING.**
+**IMPLEMENTATION AUTHORIZED — R1 DOMAIN CONTRACTS COMPLETE; R2 NEXT.**
 
-The user instructed the project to continue after Deep Design review, so the project completed Implementation Reconciliation and final implementation planning. Runtime coding is still frozen because the user explicitly wants coding to happen last.
+The user explicitly approved continuing into coding after Deep Design, reconciliation, and Harness Gate 6. Implementation now proceeds one approved R-slice at a time with tests/checks first.
 
-Existing runtime remains **Architecture Spike / prototype evidence** until coding approval.
+LIVE remains **NO-GO** until every mandatory Go/No-Go row passes.
 
-## Completed
+## Completed before coding
 
-### Deep Design
-- System Design v1
-- Component Contracts v1
-- Run State Machine v1
-- Sequence Flows v1
-- Error/ambiguity/retry policy
-- Timing design
-- Browser/session lifecycle
-- Security threat model
-- Observability/redaction spec
-- Adapter Contract v1
-- Concept 02 responsive UI spec
-- second-pass blindspot review
-- Deep Design review
+- Deep Design baseline and review
+- Harness / Gate 0-10 workflow
+- implementation reconciliation (KEEP/CHANGE/MOVE/DELETE)
+- G01-G28 gap matrix
+- R1-R10 implementation-ready plan
+- Harness Gate 6 PASS for coding approval
 
-Design blockers: **0 unresolved**.
+## R1 — Domain Contracts
 
-### Harness
-- CLAUDE project constitution
-- Gate 0-10 workflow
-- reviewer lenses
-- current-status/next-action memory
-- deviation discipline
-- meta-prompting rules
-- acceptance matrix
-- POC Go/No-Go gate
+Status: **PASS**
 
-### Implementation reconciliation
-- `design/IMPLEMENTATION_RECONCILIATION.md`
-- file-by-file KEEP / KEEP+HARDEN / CHANGE / MOVE / DELETE inventory
-- `verification/IMPLEMENTATION_GAP_MATRIX.md` with G01-G28
+Implemented in the R1 branch:
+- first-class `RunMode(TEST, LIVE)`
+- approved RunnerState vocabulary
+- generic `TaskDefinition`
+- adapter-specific `adapter_variables`
+- immutable/deep-frozen `ArmedRunSnapshot`
+- manual payment boundary policy
+- stable ErrorCode/ErrorInfo foundation
+- typed immutable RunEvent foundation
 
-### Final implementation-ready plan
-- `design/IMPLEMENTATION_READY_PLAN.md`
-- ordered R1-R10 dependency plan
-- every slice mapped to design authority + Gap IDs + tests + evidence + rollback boundary
-- C1-C4 review checkpoints
+Tests were committed before runtime implementation. Full GitHub Actions unit suite passed.
 
-### Gate 6 review
-`verification/IMPLEMENTATION_READY_REVIEW.md` verdict:
+Review evidence:
+- `verification/R1_DOMAIN_REVIEW.md`
 
-**HARNESS GATE 6 — IMPLEMENTATION READY: PASS FOR USER CODING APPROVAL.**
+## Transitional compatibility
 
-Planning branch verification confirms no `src/`, `tests/`, `scripts/`, dependency, or workflow runtime file was modified during reconciliation/planning.
+Existing Architecture Spike `TaskConfig`, legacy `Event`, and `RunnerState.READY` remain temporarily so R1 does not trigger an uncontrolled adapter/orchestrator rewrite.
 
-## Highest-risk runtime mismatches to fix after approval
+They are compatibility shims only. The approved generic domain is now the forward source of truth and later slices migrate runtime behavior onto it.
 
-1. mutable task vs immutable ArmedRunSnapshot
-2. task-global/generic retry construct around irreversible action
-3. T1 knowledge inside BrowserWorker/core model
-4. incomplete state/restart/ambiguity semantics
-5. insufficient typed/redacted observability
-6. missing TEST/LIVE intent boundary
+## Next implementation slice
 
-Recommendation remains: **reconcile existing spike, do not rewrite from zero**.
+**R2 — Local Store / Atomic ARM / Restart Safety**
 
-## Runtime frozen until coding approval
+R2 must establish:
+- editable TaskDefinition storage separate from ArmedRunSnapshot
+- atomic runId + snapshot persistence before scheduling
+- versioned local store format
+- visible storage corruption/failure
+- restart fail-closed behavior
+- no silent replay from prior RUNNING/ambiguous state
 
-Do not modify:
-- `src/`
-- `tests/`
-- `scripts/`
-- dependencies
+Do not start R3 until R2 has its own tests, review, CI evidence, and slice completion record.
 
-Do not add:
-- second adapter
-- cloud execution
-- arbitrary URL/AI recipe generation
-- remote LAN/mobile control
-- final payment automation
+## Cross-slice checkpoint
+
+Checkpoint C1 occurs after R1, R2, and R3 are independently complete. C1 rechecks:
+- domain genericity
+- snapshot immutability
+- restart/storage invariants
+- scheduler/timing safety
 
 ## LIVE blockers remain
 
@@ -87,15 +70,9 @@ Do not add:
 - Windows dedicated Chrome session persistence not rehearsed
 - profile ownership/duplicate runner not rehearsed
 - >=5 timing rehearsals not completed
-- `maxLatenessMs` not selected from evidence
+- evidence-based `maxLatenessMs` not selected
 - safe checkout/navigation/manual-handoff rehearsal pending
 - log redaction inspection pending
 - near-live target contract freshness pending
 
-LIVE = **NO-GO** until every mandatory Go/No-Go item passes.
-
-## Exact next trigger
-
-The next technical action is R1 Domain Contracts **only after explicit user coding approval**.
-
-Until then, stop at planning.
+Coding completion never overrides these LIVE gates.

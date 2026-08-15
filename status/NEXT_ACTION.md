@@ -2,40 +2,54 @@
 
 ## Single next objective
 
-**Obtain explicit user approval before runtime coding.**
+**R2 — Local Store / Atomic ARM / Restart Safety.**
 
-Implementation reconciliation and the final R1-R10 implementation-ready plan are complete. Harness Gate 6 passed for planning. The project must now stop because the user explicitly requested coding last.
+R1 Domain Contracts passed its tests/review. Do not expand scope or jump to R3 before R2 is independently verified.
 
-## Approved plan to review
+## Read first
 
-1. `design/IMPLEMENTATION_RECONCILIATION.md`
-2. `verification/IMPLEMENTATION_GAP_MATRIX.md`
-3. `design/IMPLEMENTATION_READY_PLAN.md`
-4. `verification/IMPLEMENTATION_READY_REVIEW.md`
-5. `verification/POC_GO_NO_GO.md`
+1. `status/CURRENT_STATUS.md`
+2. `verification/R1_DOMAIN_REVIEW.md`
+3. `design/IMPLEMENTATION_READY_PLAN.md` — R2 section
+4. `design/COMPONENT_CONTRACTS.md` — Local Store / RunnerService
+5. `design/STATE_MACHINE.md` — ARM/restart behavior
+6. `design/SECURITY_MODEL.md`
+7. `harness/IMPLEMENTATION_GATE_CHECKLIST.md`
 
-## If coding is approved
+## R2 Gap IDs
 
-Begin **R1 Domain Contracts only**.
+- G02 atomic runId + snapshot before scheduler
+- G16 restart fail-closed recovery
+- operational support for G01 immutable active-run snapshot
 
-Do not jump to R2-R10 in the same uncontrolled change.
+## Tests first
 
-R1 must:
-- cite Gap IDs G01/G03/G13/G14/G20
-- define tests first
-- modify only approved R1 files
-- keep T1-specific values out of generic core
-- create immutable ArmedRunSnapshot foundation
-- run regression tests
-- complete C1 review prerequisites as applicable
-- update status/deviations if reality differs
+Before runtime integration, write tests for:
+- atomic snapshot persistence
+- storage failure blocks ARM/scheduling
+- corrupt store is visible failure, not silent reset
+- restart from RUNNING/ambiguous state never dispatches
+- persisted snapshot remains immutable after reload
+- terminal/cancelled history is not resumed as a live run
 
-Then stop for slice verification before R2.
+## Allowed implementation scope
 
-## If coding is not approved yet
+- narrow new `src/precision_runner/store.py` (or equivalent)
+- store/recovery tests
+- only the minimal `service.py` integration required by R2
 
-Make no runtime changes. Documentation can be clarified, but no feature work starts.
+No scheduler redesign, adapter migration, browser refactor, UI work, or live-target request belongs in R2.
+
+## Completion condition
+
+R2 ends only after:
+- full unit suite passes
+- changed files are reviewed against storage/restart contracts
+- no hidden replay path exists
+- status/review evidence is updated
+
+Then R3 becomes eligible.
 
 ## LIVE remains separate
 
-Coding approval is not LIVE approval. `verification/POC_GO_NO_GO.md` must still pass all target, environment, rehearsal, timing, failure, UX, and day-of-live gates.
+R2 completion does not change LIVE NO-GO blockers in `verification/POC_GO_NO_GO.md`.
