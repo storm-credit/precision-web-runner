@@ -3,12 +3,25 @@ from __future__ import annotations
 import json
 import threading
 import time
+import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from .browser_worker import BrowserWorker
-from .models import Event, KST, RunnerState, TaskConfig
+from .models import (
+    ArmedRunSnapshot,
+    Event,
+    KST,
+    ManualBoundaryPolicy,
+    RunMode,
+    RunnerState,
+    RunStage,
+    SideEffectStatus,
+    TaskConfig,
+    TaskDefinition,
+)
+from .store import LocalStore, StoreCorrupt, StoreError
 from .t1_adapter import AdapterError, T1Adapter
 from .timing import wait_until
 
@@ -20,11 +33,16 @@ _ACTIVE_STATES = {
 
 
 class RunnerService:
-    def __init__(self, data_dir: Path | None = None, browser: BrowserWorker | None = None):
+    def __init__(
+        self,
+        data_dir: Path | None = None,
+        browser: BrowserWorker | None = None,
+        store: LocalStore | None = None,
+    ):
         self.data_dir = data_dir or (Path.home() / ".precision-web-runner")
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.profile_dir = self.data_dir / "chrome-profile"
-        self.task_path = self.data_dir / "task.json"
+        self.task_path = self.data_dir / "task.json"  # Architecture Spike compatibility until later slices.
         self.log_path = self.data_dir / "runs.jsonl"
         self._lock = threading.RLock()
         self._execution_lock = threading.Lock()
@@ -32,17 +50,55 @@ class RunnerService:
         self._schedule_thread: threading.Thread | None = None
         self.browser = browser or BrowserWorker(self.profile_dir)
         self.adapter = T1Adapter()
+        self.store = store or LocalStore(self.data_dir)
         self.task = self._load_task()
-        self.state = RunnerState.READY
+        self.state = RunnerState.DRAFT
         self.events: list[Event] = []
         self.last_checkout_number: str | None = None
         self.last_error: str | None = None
+        self.active_snapshot: ArmedRunSnapshot | None = None
+        self.active_run_id: str | None = None
+        self._recovery_blocked = False
         self._consent_handled = False
-        self._event("info", "Runner ready")
+        self._restore_recovery_state()
+        if self._recovery_blocked:
+            self._event("error", self.last_error or "Runner recovery blocked")
+        else:
+            self._event("info", "Runner ready")
 
     def close(self) -> None:
         self._cancel.set()
         self.browser.close()
+
+    def _restore_recovery_state(self) -> None:
+        try:
+            prior = self.store.load_active_run()
+        except StoreCorrupt as exc:
+            self.state = RunnerState.FAILED
+            self.last_error = f"LOCAL_STORAGE_FAILURE: {exc}"
+            self._recovery_blocked = True
+            return
+        except StoreError as exc:
+            self.state = RunnerState.FAILED
+            self.last_error = f"LOCAL_STORAGE_FAILURE: {exc}"
+            self._recovery_blocked = True
+            return
+
+        if prior is None:
+            self.state = RunnerState.DRAFT
+            return
+
+        # POC recovery is intentionally fail-closed. No active run is silently
+        # resumed after process restart, regardless of whether it was ARMED,
+        # PREWARMING, RUNNING, or waiting at a manual checkpoint.
+        self.active_snapshot = prior.snapshot
+        self.active_run_id = prior.snapshot.run_id
+        self.state = RunnerState.FAILED
+        self.last_error = (
+            f"RECOVERY_REQUIRED: prior active run {prior.snapshot.run_id} "
+            f"was left in {prior.state.value}/{prior.stage.value}; manual inspection is required"
+        )
+        self._recovery_blocked = True
 
     def _load_task(self) -> TaskConfig:
         if not self.task_path.exists():
@@ -52,7 +108,38 @@ class RunnerService:
             task.max_retries = 0
             return task
         except Exception:
+            # Legacy task.json is Architecture Spike compatibility data. The
+            # versioned LocalStore introduced in R2 does not silently ignore
+            # corruption; this legacy path is removed in later migration slices.
             return TaskConfig()
+
+    def _task_definition(self, mode: RunMode) -> TaskDefinition:
+        adapter_version = str(getattr(self.adapter, "version", "spike-0"))
+        return TaskDefinition(
+            name=self.task.name,
+            target_url=self.task.target_url,
+            target_time=self.task.target_time,
+            adapter_id=str(getattr(self.adapter, "name", "unknown")),
+            adapter_version=adapter_version,
+            mode=mode,
+            # R2 deliberately does not teach the orchestrator individual T1
+            # fields. The legacy object is captured as one adapter-scoped value
+            # until the real Adapter Contract migration in R4.
+            adapter_variables={"legacy_task_config": self.task.to_dict()},
+            prewarm_lead_ms=30_000,
+            max_lateness_ms=2_000,
+            manual_boundary=ManualBoundaryPolicy(
+                auto_consent=self.task.auto_consent,
+                open_payment_ui=self.task.auto_open_payment,
+            ),
+        )
+
+    def _new_snapshot(self, mode: RunMode) -> ArmedRunSnapshot:
+        return ArmedRunSnapshot.from_task(
+            self._task_definition(mode),
+            run_id=str(uuid.uuid4()),
+            armed_at=datetime.now(KST),
+        )
 
     def save_task(self, data: dict[str, Any]) -> dict[str, Any]:
         task = TaskConfig.from_dict(data)
@@ -62,10 +149,13 @@ class RunnerService:
         if errors:
             raise ValueError("; ".join(errors))
         with self._lock:
-            if self.state in _ACTIVE_STATES:
-                raise RuntimeError("Cannot edit task while runner is armed or running")
+            if self.state in _ACTIVE_STATES or self.active_run_id is not None:
+                raise RuntimeError("Cannot edit task while a run is active or awaiting recovery")
             self.task = task
             self.task_path.write_text(json.dumps(task.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+            # Begin dual-writing the approved generic editable contract without
+            # deleting the legacy task.json until later adapter/API migration.
+            self.store.save_task(self._task_definition(RunMode.TEST))
             self._event("info", "Task saved")
         return task.to_dict()
 
@@ -79,6 +169,7 @@ class RunnerService:
                 "target": target.isoformat(),
                 "secondsRemaining": max(0.0, (target - now).total_seconds()),
                 "task": self.task.to_dict(),
+                "runId": self.active_run_id,
                 "lastCheckoutNumber": self.last_checkout_number,
                 "lastError": self.last_error,
                 "events": [e.to_dict() for e in self.events[-60:]],
@@ -95,6 +186,10 @@ class RunnerService:
         self._event(level, "Preflight completed", {"status": result.get("status")})
         return result
 
+    def _assert_recovery_clear(self) -> None:
+        if self._recovery_blocked or self.active_run_id is not None:
+            raise RuntimeError("recovery inspection is required before another run can be armed")
+
     def arm(self) -> dict[str, Any]:
         errors = self.adapter.validate_target(self.task)
         if errors:
@@ -103,14 +198,28 @@ class RunnerService:
         if target <= datetime.now(target.tzinfo):
             raise ValueError("target time is in the past")
         with self._lock:
+            self._assert_recovery_clear()
             if self.state in _ACTIVE_STATES:
                 raise RuntimeError("runner is already armed or running")
+
+            snapshot = self._new_snapshot(RunMode.LIVE)
+            # Critical R2 ordering: durable snapshot first, scheduler second.
+            # StoreError propagates before any state/thread/browser work begins.
+            self.store.create_active_run(
+                snapshot,
+                state=RunnerState.ARMED,
+                stage=RunStage.PRECHECK,
+                side_effect=SideEffectStatus.NONE,
+            )
+
+            self.active_snapshot = snapshot
+            self.active_run_id = snapshot.run_id
             self._cancel = threading.Event()
             self.state = RunnerState.ARMED
             self.last_error = None
             self.last_checkout_number = None
             self._consent_handled = False
-            self._event("info", "Runner armed", {"target": target.isoformat()})
+            self._event("info", "Runner armed", {"target": target.isoformat(), "runId": snapshot.run_id})
             self._schedule_thread = threading.Thread(target=self._scheduled_run, daemon=True, name="scheduled-run")
             self._schedule_thread.start()
         return self.status()
@@ -121,7 +230,19 @@ class RunnerService:
                 raise RuntimeError("checkout dispatch has started; cannot safely cancel in-flight work")
             self._cancel.set()
             if self.state in {RunnerState.ARMED, RunnerState.PREWARMING}:
+                run_id = self.active_run_id
+                if run_id is None:
+                    raise RuntimeError("active run identity is missing")
+                stage = RunStage.PREWARM if self.state == RunnerState.PREWARMING else RunStage.PRECHECK
+                self.store.complete_active_run(
+                    run_id,
+                    state=RunnerState.CANCELLED,
+                    stage=stage,
+                    side_effect=SideEffectStatus.NONE,
+                )
                 self.state = RunnerState.CANCELLED
+                self.active_run_id = None
+                self.active_snapshot = None
                 self._event("warning", "Runner cancelled")
         return self.status()
 
@@ -130,14 +251,25 @@ class RunnerService:
         if errors:
             raise ValueError("; ".join(errors))
         with self._lock:
+            self._assert_recovery_clear()
             if self.state in _ACTIVE_STATES:
                 raise RuntimeError("runner is already armed or running")
+
+            snapshot = self._new_snapshot(RunMode.TEST)
+            self.store.create_active_run(
+                snapshot,
+                state=RunnerState.RUNNING,
+                stage=RunStage.DISPATCH,
+                side_effect=SideEffectStatus.NONE,
+            )
+            self.active_snapshot = snapshot
+            self.active_run_id = snapshot.run_id
             self._cancel = threading.Event()
             self.last_error = None
             self.last_checkout_number = None
             self._consent_handled = False
             self.state = RunnerState.RUNNING
-            self._event("info", "Immediate checkout test accepted")
+            self._event("info", "Immediate checkout test accepted", {"runId": snapshot.run_id})
             thread = threading.Thread(target=self._execute_checkout_flow, daemon=True, name="run-now")
             thread.start()
         return self.status()
@@ -159,15 +291,42 @@ class RunnerService:
             self._event("warning", "Payment window opened; payment authorization remains manual")
         return self.status()
 
+    def _persist_active_state(
+        self,
+        *,
+        state: RunnerState,
+        stage: RunStage,
+        side_effect: SideEffectStatus = SideEffectStatus.NONE,
+        error_code: str | None = None,
+    ) -> None:
+        if self.active_run_id is None:
+            raise StoreError("active run identity is missing")
+        self.store.update_active_run(
+            self.active_run_id,
+            state=state,
+            stage=stage,
+            side_effect=side_effect,
+            error_code=error_code,
+        )
+
     def _scheduled_run(self) -> None:
-        target = self.task.target_datetime()
-        prewarm_at = target - timedelta(seconds=30)
+        snapshot = self.active_snapshot
+        if snapshot is None:
+            self._fail("active snapshot missing before schedule", error_code="LOCAL_STORAGE_FAILURE")
+            return
+        target = snapshot.target_at
+        prewarm_at = target - timedelta(milliseconds=snapshot.prewarm_lead_ms)
         if datetime.now(target.tzinfo) < prewarm_at:
             if not wait_until(prewarm_at, self._cancel):
                 return
         if self._cancel.is_set():
             return
 
+        try:
+            self._persist_active_state(state=RunnerState.PREWARMING, stage=RunStage.PREWARM)
+        except StoreError as exc:
+            self._fail(f"storage failed before prewarm: {exc}", error_code="LOCAL_STORAGE_FAILURE")
+            return
         with self._lock:
             self.state = RunnerState.PREWARMING
             self._event("info", "Prewarming browser")
@@ -196,12 +355,27 @@ class RunnerService:
             self._fail("duplicate execution prevented")
             return
         try:
+            try:
+                self._persist_active_state(
+                    state=RunnerState.RUNNING,
+                    stage=RunStage.DISPATCH,
+                    side_effect=SideEffectStatus.NONE,
+                )
+            except StoreError as exc:
+                self._fail(f"storage failed before checkout dispatch: {exc}", error_code="LOCAL_STORAGE_FAILURE")
+                return
+
             with self._lock:
                 self.state = RunnerState.RUNNING
                 self._event("info", "Checkout dispatch started", {"dispatchAt": datetime.now(KST).isoformat()})
 
             checkout_number = self._create_checkout_with_retry()
             self.last_checkout_number = checkout_number
+            self._persist_active_state(
+                state=RunnerState.RUNNING,
+                stage=RunStage.NAVIGATE,
+                side_effect=SideEffectStatus.CONFIRMED,
+            )
             self._event("info", "Checkout created", {"checkoutNumber": checkout_number})
             self.browser.submit("navigate_checkout", checkout_number, timeout=40)
             self._event("info", "Checkout page opened")
@@ -219,6 +393,11 @@ class RunnerService:
                     raise RuntimeError(payment.get("reason", "payment button failed"))
                 self._event("warning", "Payment window opened; finish payment manually")
 
+            self._persist_active_state(
+                state=RunnerState.WAITING_MANUAL,
+                stage=RunStage.HANDOFF,
+                side_effect=SideEffectStatus.CONFIRMED,
+            )
             with self._lock:
                 self.state = RunnerState.WAITING_MANUAL
                 if self.task.auto_open_payment:
@@ -248,16 +427,55 @@ class RunnerService:
             if result.checkout_number:
                 return result.checkout_number
             if result.retryable and index + 1 < attempts:
-                self._event("warning", "Retryable HTTP response; bounded retry scheduled", {"status": result.status, "attempt": index + 1})
+                self._event(
+                    "warning",
+                    "Retryable HTTP response; bounded retry scheduled",
+                    {"status": result.status, "attempt": index + 1},
+                )
                 time.sleep(self.task.retry_delay_ms / 1000)
                 continue
             raise RuntimeError(result.message)
         raise AdapterError("checkout retry loop exhausted")
 
-    def _fail(self, message: str) -> None:
+    def _fail(self, message: str, *, error_code: str = "INTERNAL_ERROR") -> None:
         with self._lock:
+            previous_state = self.state
             self.state = RunnerState.FAILED
             self.last_error = message
+
+            if self.active_run_id is not None:
+                run_id = self.active_run_id
+                # Once dispatch has begun, preserve the active record for manual
+                # recovery review. R6 will refine exact semantic classification;
+                # R2's rule is deliberately conservative and never replays.
+                if previous_state == RunnerState.RUNNING:
+                    try:
+                        self.store.update_active_run(
+                            run_id,
+                            state=RunnerState.FAILED,
+                            stage=RunStage.DISPATCH,
+                            side_effect=SideEffectStatus.AMBIGUOUS,
+                            error_code=error_code,
+                        )
+                    except StoreError:
+                        pass
+                    self._recovery_blocked = True
+                else:
+                    stage = RunStage.PREWARM if previous_state == RunnerState.PREWARMING else RunStage.PRECHECK
+                    try:
+                        self.store.complete_active_run(
+                            run_id,
+                            state=RunnerState.FAILED,
+                            stage=stage,
+                            side_effect=SideEffectStatus.NONE,
+                            error_code=error_code,
+                        )
+                    except StoreError:
+                        self._recovery_blocked = True
+                    else:
+                        self.active_run_id = None
+                        self.active_snapshot = None
+
             self._event("error", message)
 
     def _event(self, level: str, message: str, detail: dict[str, Any] | None = None) -> None:
