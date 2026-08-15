@@ -1,138 +1,157 @@
 # Architecture
 
+> This is the high-level architecture summary. Deep contracts live under `design/` and take precedence if this summary is less specific.
+
 ## POC architecture
 
 ```text
-Responsive Web UI (desktop/mobile)
+Responsive Local UI
         |
         v
-Local Control API on Windows PC
-        |
-        +--> Scheduler / Clock layer
-        +--> Run state machine
-        +--> Recipe engine
-        +--> Structured redacted logs
+Local Control API (localhost-only by default)
         |
         v
-Browser execution bridge
+RunnerService / Orchestrator
+   |        |        |        \
+   |        |        |         -> EventLogger / Local Store
+   |        |        |
+   |        |        -> Site Adapter v1 (T1 Adapter 001)
+   |        -> Scheduler / Clock layer
+   -> Run State Machine + Execution Lease
         |
         v
-Logged-in target origin (T1 for Adapter 001)
+BrowserBridge
+        |
+        v
+Dedicated persistent Chrome profile
+        |
+        v
+Authorized target origin
+        |
+        v
+Manual payment handoff
 ```
 
-The POC is intentionally local-first. It avoids a cloud backend holding another site's authentication session.
+The POC is local-first. It avoids a cloud backend holding another site's authentication session.
+
+## Deep-design references
+
+- `design/SYSTEM_DESIGN.md`
+- `design/COMPONENT_CONTRACTS.md`
+- `design/STATE_MACHINE.md`
+- `design/SEQUENCE_FLOWS.md`
+- `design/ERROR_POLICY.md`
+- `design/TIMING_DESIGN.md`
+- `design/BROWSER_LIFECYCLE.md`
+- `design/SECURITY_MODEL.md`
+- `design/OBSERVABILITY_SPEC.md`
+- `design/ADAPTER_SPEC.md`
+- `design/UI_SPEC.md`
 
 ## Why not a hosted web app alone?
 
-A random hosted control site cannot safely assume it can read or replay another origin's HttpOnly/SameSite cookies. The action therefore executes inside an authorized browser context or through a local browser automation bridge attached to that context.
+A hosted controller cannot assume it can read/replay another origin's HttpOnly/SameSite cookies. Target actions therefore execute through the user's dedicated authenticated browser context on the Windows machine.
 
-## Recommended POC execution model
+## Control plane
 
-### Control plane
-
-A responsive local web app provides:
+Provides:
 - task configuration
 - target time
-- test/arm/cancel
-- runner state
-- step progress
-- logs
+- test/preflight
+- ARM/DISARM
+- state/progress
+- redacted logs
 
-It can be opened on the PC and, optionally, from a phone on the same trusted network.
+Security baseline for POC:
+- bind to localhost by default
+- mobile/narrow responsive rendering remains part of UI design
+- remote LAN phone control is deferred until pairing/authentication/CSRF protection is separately designed
 
-### Execution plane
+## Execution plane
 
-A Windows local runner owns:
-- precise scheduling
-- browser process/session connection
-- preflight
-- recipe execution
-- step/state logging
-- duplicate-run lock
+Windows local runner owns:
+- immutable ArmedRunSnapshot
+- monotonic scheduling
+- prewarm
+- browser/session lifecycle
+- one irreversible execution lease
+- adapter orchestration
+- state transitions
+- structured redacted logs
 
-### Browser bridge
+## BrowserBridge
 
-The bridge executes target-origin actions in the logged-in context. For a same-origin API call, the preferred POC shape is to execute `fetch` from the page context rather than copy cookies into the runner.
+POC decision is now explicit:
+- dedicated Precision Runner persistent Chrome profile
+- manual user login
+- same-origin page-context requests
+- no cookie export
+- one runner owns the profile
 
-The exact Playwright/CDP/profile strategy remains an implementation decision and must be proven in the architecture spike before the UI is built out.
+The browser implementation remains replaceable behind the BrowserBridge contract.
 
 ## Scheduler
 
-Do not use a browser tab timer as the authoritative scheduler.
+Do not use a page JavaScript timer as scheduling authority.
 
-The scheduler should:
-- store target wall-clock time + timezone
-- use monotonic elapsed time once armed
-- detect sleep/wake discontinuity
-- preflight before execution
-- record actual dispatch timestamp
-- enforce one-run lease/lock
+The scheduler:
+- records target wall-clock instant + timezone
+- derives monotonic target deadline after ARM
+- emits prewarm/target signals
+- detects unsafe late/sleep conditions
+- records actual dispatch/response timing
 
-POC does not promise true millisecond server alignment. It measures actual dispatch/response timing and keeps timing assumptions visible.
+The runner does not intentionally dispatch before the published permitted opening time and does not claim millisecond server alignment without evidence.
 
-## Recipe engine
+## Adapter model
 
-The recipe engine should be declarative and allow-listed.
-
-Example conceptual step flow:
-
-```yaml
-steps:
-  - type: waitUntil
-    at: ${targetTime}
-  - type: sameOriginFetch
-    request: checkoutRequest
-  - type: extract
-    from: response.checkoutNumber
-    as: checkoutNumber
-  - type: navigate
-    to: /shop/checkout/${checkoutNumber}
-  - type: waitForText
-    text: 주문 내용과 약관에 동의합니다
-  - type: check
-    target: configured-consent
-  - type: manualCheckpoint
-    reason: final-payment
-```
-
-No arbitrary JavaScript `eval` in stored recipes for the POC.
-
-## Separation rule
-
-Core modules know only generic concepts:
+Core knows generic concepts only:
 - task
-- schedule
+- snapshot
 - run
-- recipe
+- schedule
+- state
 - step
-- variable
 - result
+- event
 
-T1 adapter owns:
-- T1 URL patterns
-- T1 endpoints
-- T1 request mapping
-- T1 selector/text strategy
-- T1 response extraction
+T1 Adapter 001 owns:
+- T1 URL/origin rules
+- endpoint/method/body mapping
+- T1 response parsing
+- semantic locators
+- T1-specific evidence/unknown fields
+
+Unknown fields that affect LIVE irreversible execution block ARM.
+
+## Retry / ambiguity
+
+Read-only side-effect-free preflight can use bounded retry.
+
+Irreversible checkout POST automatic replay is disabled for the live POC unless idempotency is independently proven. Ambiguous irreversible outcome requires manual inspection.
 
 ## Persistence
 
-POC persistence can remain local.
+Persist locally:
+- editable task metadata
+- immutable run snapshot metadata
+- adapter/version identifiers
+- timing metrics
+- structured redacted events
 
-Store:
-- task metadata
-- recipe versions
-- run timing
-- redacted response summaries
-
-Do not persist:
+Never persist/log:
 - raw cookies
-- authorization headers
-- full checkout page JSON containing personal information
+- Authorization/CSRF/token values
+- full personal checkout JSON/HTML
 - card/payment secrets
+- OTP/2FA
 
-## Mobile boundary
+## Manual boundary
 
-POC mobile support means responsive control/monitoring.
+Automation can reach the configured checkout/payment handoff. Final PG/card/simple-payment authorization remains manual.
 
-High-precision execution happens on the paired Windows runner. Mobile-only background execution is explicitly deferred because browser background suspension and extension support differ by platform.
+`WAITING_MANUAL` is not equivalent to paid/completed.
+
+## Existing code
+
+Current Python/Playwright runtime is **Architecture Spike / prototype evidence**. It must later be reconciled as KEEP / CHANGE / DELETE against the deep-design contracts after user approval.
