@@ -9,16 +9,17 @@
 
 ## A. Design gate
 
-- [ ] PASS Component contracts approved
-- [ ] PASS State machine approved
-- [ ] PASS Error/ambiguity policy approved
-- [ ] PASS Timing policy approved
-- [ ] PASS Security model approved
-- [ ] PASS Adapter v1 contract approved
-- [ ] PASS UI state/CTA specification approved
-- [ ] PASS Acceptance matrix approved
+- [x] PASS Component contracts approved
+- [x] PASS State machine approved
+- [x] PASS Error/ambiguity policy approved
+- [x] PASS Timing policy approved
+- [x] PASS Security model approved
+- [x] PASS Adapter v1 contract approved
+- [x] PASS UI state/CTA specification approved
+- [x] PASS Acceptance matrix approved
+- [x] PASS Architecture Spike KEEP/CHANGE/DELETE inventory completed
 
-Any unchecked design item = NO-GO for implementation reconciliation.
+Design baseline is approved for implementation-ready planning. This does **not** authorize LIVE use by itself.
 
 ## B. Target contract gate — T1 Signature
 
@@ -33,7 +34,19 @@ Any unchecked design item = NO-GO for implementation reconciliation.
 
 Until the two unchecked rows pass: LIVE = NO-GO.
 
-## C. Local environment gate
+## C. Implementation reconciliation gate
+
+- [x] file-level KEEP/CHANGE/MOVE/DELETE inventory exists
+- [x] design-to-code gap matrix exists
+- [x] high-risk mismatch cluster identified
+- [x] R1-R10 task plan maps every runtime change to Gap IDs + tests
+- [x] Harness Gate 6 Implementation Ready passes
+- [ ] explicit user coding approval received
+- [ ] reconciled runtime passes automated verification
+
+Coding remains frozen until the explicit coding-approval row passes.
+
+## D. Local environment gate
 
 - [ ] Windows clock sync confirmed
 - [ ] sleep/hibernate disabled for live window
@@ -44,7 +57,7 @@ Until the two unchecked rows pass: LIVE = NO-GO.
 - [ ] T1 login persists in dedicated profile
 - [ ] dashboard bound only to approved interface (localhost by default)
 
-## D. Safe rehearsal gate
+## E. Safe rehearsal gate
 
 - [ ] safe preflight PASS
 - [ ] safe checkout response/parse PASS
@@ -55,64 +68,79 @@ Until the two unchecked rows pass: LIVE = NO-GO.
 - [ ] final authorization remains manual
 - [ ] logs inspected and contain no secrets/PII
 
-## E. Timing gate
+## F. Timing gate
 
 - [ ] at least 5 safe scheduled rehearsals
 - [ ] dispatch lateness values recorded
 - [ ] worst observed lateness reviewed
-- [ ] maxLatenessMs explicitly chosen from evidence
+- [ ] `maxLatenessMs` explicitly chosen from evidence
 - [ ] sleep/wake behavior tested or safely prevented for live window
 - [ ] no intentional pre-opening dispatch offset
 
-## F. Failure gate
+## G. Failure gate
 
 Verify at least:
 - [ ] logged-out preflight fails closed
 - [ ] server 4xx fails closed
+- [ ] 429/rate-limit fails closed
 - [ ] missing checkoutNumber fails closed
 - [ ] ambiguous transport does not replay checkout automatically
 - [ ] navigation failure after known checkout does not create a second checkout
 - [ ] duplicate ARM/run is blocked
+- [ ] restart from active/ambiguous run fails closed
 
-## G. UX gate
+## H. UX gate
 
 - [ ] TEST vs LIVE mode unmistakable
 - [ ] target item/amount/time visible before ARM
+- [ ] LIVE confirmation summary visible
 - [ ] all ARM blockers visible by reason
-- [ ] mobile/narrow first viewport shows target/time/state/CTA
-- [ ] RUNNING does not offer a misleading undo/cancel after dispatch
+- [ ] mobile/narrow first viewport shows readiness/mode/target/time/state/CTA/blocker
+- [ ] RUNNING does not offer misleading undo/cancel after dispatch
+- [ ] AMBIGUOUS failure does not offer generic retry
 - [ ] WAITING_MANUAL clearly says final payment is manual
 
-## H. Day-of-live gate
+## I. Day-of-live gate
 
 Immediately before ARM:
-- [ ] exact task snapshot reviewed
+- [ ] exact immutable task snapshot reviewed
 - [ ] target time = published permitted opening time
 - [ ] adapter version matches rehearsed version
 - [ ] browser already logged in
 - [ ] preflight passes
 - [ ] no duplicate runner instance
+- [ ] current T1 contract freshness checked
 - [ ] no unresolved BLOCKED/UNKNOWN mandatory acceptance row
 
 ## Decision rule
 
 ### GO
-Only when all mandatory design, target, environment, rehearsal, timing, failure, UX, and day-of-live items are PASS.
+Only when all mandatory design, reconciliation, target, environment, rehearsal, timing, failure, UX, and day-of-live items are PASS.
 
 ### CONDITIONAL GO is not supported
 For this POC, an UNKNOWN mandatory item is a NO-GO rather than a guessed approval.
 
 ### NO-GO
-If any mandatory gate is BLOCKED/UNKNOWN, use manual normal site flow or fix/rehearse before target. Do not compensate with bypasses, repeated requests, or unreviewed last-minute code changes.
+If any mandatory gate is BLOCKED/UNKNOWN, use the normal manual site flow or fix/rehearse before target. Do not compensate with bypasses, repeated requests, or unreviewed last-minute code changes.
 
-## Current status at Deep Design creation
+## Current status
 
-**NO-GO / DESIGN IN REVIEW.**
+**NO-GO / CODING APPROVAL PENDING.**
 
-Reason:
-- deep design still awaiting review/approval
-- Signature `shippingType` still unverified
-- Windows/browser live rehearsal not yet performed
-- timing variance not yet measured
+Passed:
+- Deep Design + Harness baseline
+- design review
+- Architecture Spike reconciliation inventory
+- Gap Matrix
+- R1-R10 implementation-ready plan
+- Harness Gate 6 review
 
-This status is expected and should not be changed to GO merely because unit tests pass.
+Still blocking:
+- explicit runtime coding approval
+- runtime reconciliation and verification
+- Signature `shippingType`
+- Windows/browser rehearsal
+- timing variance / chosen `maxLatenessMs`
+- target contract freshness
+
+This status must not be changed to GO merely because CI/unit tests pass.

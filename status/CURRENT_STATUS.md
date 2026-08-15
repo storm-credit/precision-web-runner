@@ -2,70 +2,100 @@
 
 ## Phase
 
-**DEEP DESIGN BASELINE COMPLETE — USER REVIEW / APPROVAL PENDING.**
+**IMPLEMENTATION-READY PLAN COMPLETE — EXPLICIT CODING APPROVAL PENDING.**
 
-Runtime code already present in the repository remains **Architecture Spike / prototype evidence only**. No feature expansion or runtime reconciliation occurs until the user approves the design baseline.
+The user instructed the project to continue after Deep Design review, so the project completed Implementation Reconciliation and final implementation planning. Runtime coding is still frozen because the user explicitly wants coding to happen last.
 
-## Why this phase exists
+Existing runtime remains **Architecture Spike / prototype evidence** until coding approval.
 
-The 2026-08-17 live target caused implementation to begin before the full design/harness package was complete. The repository has now corrected that order by making the architecture contracts, failure policy, timing, security, adapter boundary, UX states, acceptance evidence, and live release gate explicit.
+## Completed
 
-## Deep design completed
-
+### Deep Design
 - System Design v1
 - Component Contracts v1
 - Run State Machine v1
-- Normal/failure Sequence Flows v1
-- Error taxonomy / ambiguity / retry policy
-- Timing and scheduling design
+- Sequence Flows v1
+- Error/ambiguity/retry policy
+- Timing design
 - Browser/session lifecycle
 - Security threat model
-- Observability/redaction specification
+- Observability/redaction spec
 - Adapter Contract v1
-- Responsive UI Specification v1
-- Second-pass Deep Blindspot Review
-- Deep Design Review Report
+- Concept 02 responsive UI spec
+- second-pass blindspot review
+- Deep Design review
 
-## Harness completed
+Design blockers: **0 unresolved**.
 
-- `CLAUDE.md` design-freeze constitution
-- Context → Interview → Blindspot → Trap → Design → Review → Approval → Implementation → Verification gates
-- explicit reviewer lenses/roles
-- repository-native current-status / next-action memory
+### Harness
+- CLAUDE project constitution
+- Gate 0-10 workflow
+- reviewer lenses
+- current-status/next-action memory
 - deviation discipline
-- meta-prompting process
-- dedicated design-review prompt
+- meta-prompting rules
 - acceptance matrix
-- live Go/No-Go gate
+- POC Go/No-Go gate
 
-## Review verdict
+### Implementation reconciliation
+- `design/IMPLEMENTATION_RECONCILIATION.md`
+- file-by-file KEEP / KEEP+HARDEN / CHANGE / MOVE / DELETE inventory
+- `verification/IMPLEMENTATION_GAP_MATRIX.md` with G01-G28
 
-`design/DESIGN_REVIEW_REPORT.md`:
+### Final implementation-ready plan
+- `design/IMPLEMENTATION_READY_PLAN.md`
+- ordered R1-R10 dependency plan
+- every slice mapped to design authority + Gap IDs + tests + evidence + rollback boundary
+- C1-C4 review checkpoints
 
-- Design blockers: none currently unresolved
-- Design baseline: **PASS FOR USER REVIEW**
-- Implementation: **FROZEN / NOT YET RECONCILED**
-- Live: **NO-GO**
+### Gate 6 review
+`verification/IMPLEMENTATION_READY_REVIEW.md` verdict:
 
-## Frozen until approval
+**HARNESS GATE 6 — IMPLEMENTATION READY: PASS FOR USER CODING APPROVAL.**
 
+Planning branch verification confirms no `src/`, `tests/`, `scripts/`, dependency, or workflow runtime file was modified during reconciliation/planning.
+
+## Highest-risk runtime mismatches to fix after approval
+
+1. mutable task vs immutable ArmedRunSnapshot
+2. task-global/generic retry construct around irreversible action
+3. T1 knowledge inside BrowserWorker/core model
+4. incomplete state/restart/ambiguity semantics
+5. insufficient typed/redacted observability
+6. missing TEST/LIVE intent boundary
+
+Recommendation remains: **reconcile existing spike, do not rewrite from zero**.
+
+## Runtime frozen until coding approval
+
+Do not modify:
 - `src/`
 - `tests/`
 - `scripts/`
-- runtime dependencies
-- new automation features
-- generalized URL/AI recipe generation
+- dependencies
 
-## Known unresolved LIVE facts
+Do not add:
+- second adapter
+- cloud execution
+- arbitrary URL/AI recipe generation
+- remote LAN/mobile control
+- final payment automation
 
-- Signature Edition `shippingType` is not independently verified.
-- Windows scheduling variance is not yet measured.
-- T1 authentication/session persistence has not yet been rehearsed on the user's Windows machine.
-- Current T1 contract freshness must be rechecked before live use.
-- Checkout creation must never be inferred to mean inventory reservation or payment success.
+## LIVE blockers remain
 
-## Next phase trigger
+- Signature Edition `shippingType` unverified
+- Windows dedicated Chrome session persistence not rehearsed
+- profile ownership/duplicate runner not rehearsed
+- >=5 timing rehearsals not completed
+- `maxLatenessMs` not selected from evidence
+- safe checkout/navigation/manual-handoff rehearsal pending
+- log redaction inspection pending
+- near-live target contract freshness pending
 
-Only explicit user approval of the deep-design baseline opens **Implementation Reconciliation**.
+LIVE = **NO-GO** until every mandatory Go/No-Go item passes.
 
-That next phase starts with a KEEP / CHANGE / DELETE inventory of the existing Architecture Spike. It does not start with new feature coding.
+## Exact next trigger
+
+The next technical action is R1 Domain Contracts **only after explicit user coding approval**.
+
+Until then, stop at planning.

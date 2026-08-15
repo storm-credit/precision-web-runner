@@ -2,49 +2,40 @@
 
 ## Single next objective
 
-**User review / approval of the Deep Design + Harness baseline.**
+**Obtain explicit user approval before runtime coding.**
 
-The design package is internally reviewed and has no unresolved design BLOCKER. Runtime remains frozen.
+Implementation reconciliation and the final R1-R10 implementation-ready plan are complete. Harness Gate 6 passed for planning. The project must now stop because the user explicitly requested coding last.
 
-## Review order
+## Approved plan to review
 
-1. `status/CURRENT_STATUS.md`
-2. `design/DESIGN_REVIEW_REPORT.md`
-3. `design/DEEP_BLINDSPOT_REVIEW.md`
-4. `design/SYSTEM_DESIGN.md`
-5. `design/COMPONENT_CONTRACTS.md`
-6. `design/STATE_MACHINE.md`
-7. `design/ERROR_POLICY.md`
-8. `design/TIMING_DESIGN.md`
-9. `design/SECURITY_MODEL.md`
-10. `design/ADAPTER_SPEC.md`
-11. `design/UI_SPEC.md`
-12. `verification/ACCEPTANCE_MATRIX.md`
-13. `verification/POC_GO_NO_GO.md`
+1. `design/IMPLEMENTATION_RECONCILIATION.md`
+2. `verification/IMPLEMENTATION_GAP_MATRIX.md`
+3. `design/IMPLEMENTATION_READY_PLAN.md`
+4. `verification/IMPLEMENTATION_READY_REVIEW.md`
+5. `verification/POC_GO_NO_GO.md`
 
-## Decisions to notice during approval
+## If coding is approved
 
-- existing runtime is an Architecture Spike, not final design
-- dedicated Chrome profile remains the session strategy
-- live POC dashboard defaults to localhost-only
-- responsive mobile/narrow UI remains, but remote phone control is deferred
-- LIVE checkout POST automatic replay is disabled
-- ambiguous irreversible outcome requires manual inspection
-- target action is never intentionally dispatched before the permitted opening time
-- final payment authorization remains manual
+Begin **R1 Domain Contracts only**.
 
-## If approved
+Do not jump to R2-R10 in the same uncontrolled change.
 
-Next technical phase is **Implementation Reconciliation**, starting with a KEEP / CHANGE / DELETE inventory of existing prototype code against the approved contracts.
+R1 must:
+- cite Gap IDs G01/G03/G13/G14/G20
+- define tests first
+- modify only approved R1 files
+- keep T1-specific values out of generic core
+- create immutable ArmedRunSnapshot foundation
+- run regression tests
+- complete C1 review prerequisites as applicable
+- update status/deviations if reality differs
 
-Do not jump directly to feature additions.
+Then stop for slice verification before R2.
 
-## If not approved
+## If coding is not approved yet
 
-Change the design documents first, re-run `prompts/DESIGN_REVIEW_PROMPT.md`, update `docs/DEVIATIONS.md` if the plan changed materially, and keep runtime frozen.
+Make no runtime changes. Documentation can be clarified, but no feature work starts.
 
 ## LIVE remains separate
 
-Design approval does not equal live approval.
-
-LIVE requires all mandatory evidence in `verification/POC_GO_NO_GO.md`, including Signature `shippingType`, Windows/browser rehearsal, timing measurements, and target-contract freshness.
+Coding approval is not LIVE approval. `verification/POC_GO_NO_GO.md` must still pass all target, environment, rehearsal, timing, failure, UX, and day-of-live gates.
