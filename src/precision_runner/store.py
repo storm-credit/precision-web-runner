@@ -3,9 +3,10 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Mapping
 
 from .models import (
@@ -40,6 +41,10 @@ def _parse_datetime(value: Any, *, field_name: str) -> datetime:
     return dt
 
 
+def _freeze_mapping(value: Mapping[str, Any] | None) -> Mapping[str, Any]:
+    return MappingProxyType(dict(value or {}))
+
+
 @dataclass(frozen=True, slots=True)
 class ActiveRunRecord:
     snapshot: ArmedRunSnapshot
@@ -48,6 +53,10 @@ class ActiveRunRecord:
     side_effect: SideEffectStatus
     updated_at: datetime
     error_code: str | None = None
+    safe_variables: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "safe_variables", _freeze_mapping(self.safe_variables))
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -58,6 +67,7 @@ class ActiveRunRecord:
             "side_effect": self.side_effect.value,
             "updated_at": self.updated_at.isoformat(),
             "error_code": self.error_code,
+            "safe_variables": dict(self.safe_variables),
         }
 
     @classmethod
@@ -83,6 +93,9 @@ class ActiveRunRecord:
                 armed_at=_parse_datetime(raw_snapshot["armed_at"], field_name="armed_at"),
                 contract_version=str(raw_snapshot.get("contract_version", "1")),
             )
+            raw_safe = payload.get("safe_variables", {})
+            if not isinstance(raw_safe, Mapping):
+                raise StoreCorrupt("safe_variables must be an object")
             return cls(
                 snapshot=snapshot,
                 state=RunnerState(payload["state"]),
@@ -90,10 +103,11 @@ class ActiveRunRecord:
                 side_effect=SideEffectStatus(payload.get("side_effect", SideEffectStatus.NONE.value)),
                 updated_at=_parse_datetime(payload["updated_at"], field_name="updated_at"),
                 error_code=(str(payload["error_code"]) if payload.get("error_code") is not None else None),
+                safe_variables=dict(raw_safe),
             )
+        except StoreCorrupt:
+            raise
         except (KeyError, TypeError, ValueError) as exc:
-            if isinstance(exc, StoreCorrupt):
-                raise
             raise StoreCorrupt("invalid active-run record") from exc
 
 
@@ -101,8 +115,8 @@ class LocalStore:
     """Versioned local persistence for editable tasks and immutable armed runs.
 
     The active-run file is the safety boundary. It is written atomically before
-    scheduler activation and is intentionally left in place for recovery review
-    when an in-flight/ambiguous run cannot be proven safe to resume.
+    scheduler activation and intentionally remains for recovery review when an
+    in-flight/ambiguous/confirmed-side-effect run cannot be safely auto-resumed.
     """
 
     def __init__(self, root: Path):
@@ -140,6 +154,7 @@ class LocalStore:
         state: RunnerState = RunnerState.ARMED,
         stage: RunStage = RunStage.PRECHECK,
         side_effect: SideEffectStatus = SideEffectStatus.NONE,
+        safe_variables: Mapping[str, Any] | None = None,
     ) -> ActiveRunRecord:
         if self.active_run_path.exists():
             raise StoreError("active run already exists; recovery/inspection is required")
@@ -149,6 +164,7 @@ class LocalStore:
             stage=stage,
             side_effect=side_effect,
             updated_at=datetime.now(snapshot.armed_at.tzinfo),
+            safe_variables=safe_variables or {},
         )
         self._write_json(self.active_run_path, record.to_payload(), label="active run")
         return record
@@ -167,12 +183,16 @@ class LocalStore:
         stage: RunStage,
         side_effect: SideEffectStatus = SideEffectStatus.NONE,
         error_code: str | None = None,
+        safe_variables: Mapping[str, Any] | None = None,
     ) -> ActiveRunRecord:
         current = self.load_active_run()
         if current is None:
             raise StoreError("no active run to update")
         if current.snapshot.run_id != run_id:
             raise StoreError("active run id mismatch")
+        merged_safe = dict(current.safe_variables)
+        if safe_variables is not None:
+            merged_safe.update(dict(safe_variables))
         record = ActiveRunRecord(
             snapshot=current.snapshot,
             state=state,
@@ -180,6 +200,7 @@ class LocalStore:
             side_effect=side_effect,
             updated_at=datetime.now(current.snapshot.armed_at.tzinfo),
             error_code=error_code,
+            safe_variables=merged_safe,
         )
         self._write_json(self.active_run_path, record.to_payload(), label="active run")
         return record
@@ -192,6 +213,7 @@ class LocalStore:
         stage: RunStage,
         side_effect: SideEffectStatus,
         error_code: str | None = None,
+        safe_variables: Mapping[str, Any] | None = None,
     ) -> ActiveRunRecord:
         if state not in _TERMINAL_STATES:
             raise StoreError("complete_active_run requires a terminal state")
@@ -200,6 +222,9 @@ class LocalStore:
             raise StoreError("no active run to complete")
         if current.snapshot.run_id != run_id:
             raise StoreError("active run id mismatch")
+        merged_safe = dict(current.safe_variables)
+        if safe_variables is not None:
+            merged_safe.update(dict(safe_variables))
         record = ActiveRunRecord(
             snapshot=current.snapshot,
             state=state,
@@ -207,6 +232,7 @@ class LocalStore:
             side_effect=side_effect,
             updated_at=datetime.now(current.snapshot.armed_at.tzinfo),
             error_code=error_code,
+            safe_variables=merged_safe,
         )
         self._append_history(record)
         try:
