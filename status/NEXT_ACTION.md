@@ -2,67 +2,67 @@
 
 ## Single next objective
 
-**R6 — Orchestrator / Error / Side-effect / Retry Migration.**
+**R7 — Typed / Redacted / Bounded Observability.**
 
-R4/R5 forward contracts are ready. R6 migrates RunnerService onto them and removes the temporary legacy browser execution path.
+R4-R6 passed and Checkpoint C2 passed. Do not begin R8 Local Control API hardening inside this slice.
 
 ## Read first
 
 1. `status/CURRENT_STATUS.md`
-2. `verification/R4_ADAPTER_REVIEW.md`
-3. `verification/R5_BROWSER_BRIDGE_REVIEW.md`
-4. `design/IMPLEMENTATION_READY_PLAN.md` — R6
-5. `design/STATE_MACHINE.md`
-6. `design/ERROR_POLICY.md`
-7. `design/COMPONENT_CONTRACTS.md` — RunnerService
-8. `design/ADAPTER_SPEC.md`
-9. `harness/IMPLEMENTATION_GATE_CHECKLIST.md`
+2. `verification/R6_ORCHESTRATOR_REVIEW.md`
+3. `verification/C2_ADAPTER_BROWSER_ORCHESTRATOR_REVIEW.md`
+4. `design/IMPLEMENTATION_READY_PLAN.md` — R7
+5. `design/OBSERVABILITY_SPEC.md`
+6. `design/SECURITY_MODEL.md`
+7. `design/ERROR_POLICY.md`
+8. `harness/IMPLEMENTATION_GATE_CHECKLIST.md`
 
-## R6 Gap IDs
+## R7 Gap IDs
 
-- G03 full state semantics
-- G04 per-step side-effect retry policy
-- G05 TRANSPORT_AMBIGUOUS handling
-- G06 confirmed-checkout navigation recovery
-- G13 stable error shape
-- G20 TEST/LIVE intent at orchestrator boundary
-- completes R4/R5 integration
+- G14 typed RunEvent + redaction-before-persistence
+- G15 bounded event retention
+- safe timing telemetry foundation for G26
 
 ## Tests first
 
-Specify tests for:
-- LIVE ARM builds/validates adapter snapshot and blocks UNKNOWN shippingType
-- irreversible create_checkout is dispatched at most once per run
-- transport failure during irreversible request => AMBIGUOUS / no replay
-- 403/429/server rejection => terminal, no alternate request or retry
-- 2xx missing checkoutNumber => CONTRACT_MISMATCH/AMBIGUOUS / no replay
-- confirmed checkoutNumber + navigation failure preserves number and never creates a second checkout
-- duplicate execution lease blocks second dispatch
-- cancel semantics before vs after irreversible dispatch
-- WAITING_MANUAL is not PAID/SUCCEEDED by implication
-- TEST and LIVE run snapshots stay distinct
-- browser/action plan is obtained from adapter; RunnerService has no T1 endpoint/payload/locator literals
+Use fixtures containing hostile/sensitive keys and values:
+- Cookie / Set-Cookie
+- Authorization
+- csrf / nonce / token / session
+- email / phone / mobile / address
+- card / otp / password
+- nested dictionaries/lists containing those fields
+- long values / oversized detail payloads
+
+Verify:
+- none persist to disk
+- BrowserResult `safe_body_text` is never accepted as a persisted raw field
+- only allow-listed structured detail keys survive
+- sequence ordering is per run
+- eventId is unique
+- state/stage/code/sideEffect survive round-trip
+- retention rotates/truncates safely when record/file limits are reached
+- timing metrics such as targetAt/requestStartedAt/responseReceivedAt/lateness/latency can be preserved as safe fields
 
 ## Allowed scope
 
-- `src/precision_runner/service.py`
-- adapter/browser integration seams
-- orchestrator/error tests
-- removal of legacy browser facade from active execution path; delete it if no longer referenced
-- narrow model additions only if required by approved ErrorInfo/state contracts
+- new event logger/redactor module
+- LocalStore event integration if needed
+- `service.py` event emission migration
+- observability tests
+- remove legacy Event JSONL path when no longer referenced
 
-No UI/API/observability overhaul, second adapter, remote control, or final payment authorization belongs in R6.
+No web API, UI, adapter, BrowserBridge behavior, remote control, or final-payment automation belongs in R7.
 
 ## Completion condition
 
-R6 ends when:
-- service consumes AdapterPlan + BrowserResult directly
-- irreversible POST generic retry loop is gone
-- side-effect ambiguity is explicit
-- confirmed checkout navigation recovery cannot duplicate checkout creation
-- temporary T1 browser facade is unused/deletable
+R7 ends when:
+- persisted events use typed RunEvent shape
+- redaction/allowlist happens before disk write
+- no raw BrowserResult body/request dump can enter event storage
+- event retention is bounded
+- service emits enough safe state/timing/error data to reconstruct a run
 - full CI passes
-- R6 review recorded
-- C2 review of R4-R6 passes
+- R7 review evidence is recorded
 
-Then R7 becomes eligible.
+Then R8 becomes eligible.
