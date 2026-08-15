@@ -1,146 +1,196 @@
 # POC Runbook — T1 2026-08-17 12:00 KST
 
+> **CURRENT STATUS: REHEARSAL PLAN ONLY / LIVE NO-GO.**
+>
+> Existing runtime is Architecture Spike evidence. Do not treat this runbook as live approval until Deep Design is approved, implementation is reconciled, and `verification/POC_GO_NO_GO.md` reaches GO.
+
 ## Purpose
 
-Make the current POC practically usable for the 2026-08-17 sale while preserving a fail-closed safety boundary.
+Define the practical Windows rehearsal/live procedure for the narrow POC while preserving fail-closed behavior.
 
-The runner automates the path to checkout/payment handoff. It does not bypass T1 eligibility or automate final payment authorization.
+The intended automated boundary is checkout/payment handoff. The runner does not bypass T1 eligibility or automate final payment authorization.
 
-## One-time setup
+## One-time rehearsal setup
 
-1. Install Python 3.11+ and Google Chrome.
-2. Clone/pull this repository.
-3. Run:
+After implementation reconciliation is approved:
 
-```powershell
-.\scripts\setup_windows.ps1
-.\scripts\run_windows.ps1
-```
+1. Install supported Python and Google Chrome.
+2. Clone/pull the approved `main` revision.
+3. Run the documented setup/run scripts.
+4. Dashboard should open on localhost only.
+5. Open the dedicated Precision Runner Chrome profile.
+6. Sign in to T1 manually inside that Chrome window.
+7. Keep this dedicated profile for the POC.
 
-4. Dashboard opens at `http://127.0.0.1:8765/`.
-5. Click **Chrome 열기 / 로그인**.
-6. Sign in to T1 inside that Chrome window.
-7. Keep this dedicated Precision Runner profile for the POC.
+The final exact commands must be revalidated after the existing Architecture Spike is reconciled against Deep Design.
 
-## Why a dedicated Chrome profile
+## Dedicated Chrome profile
 
-The runner deliberately does not copy cookies or tokens into a backend. Playwright launches its own persistent Chrome profile under the user's home directory and the user logs in there manually.
+The runner must not copy cookies/tokens into a backend. The dedicated browser profile owns the login session locally and one runner instance owns that profile.
 
-## Signature configuration
+## Signature configuration evidence
 
-Current observed defaults:
-
+Known:
 - target URL: `https://t1.fan/shop/products/525`
-- inventory item ID: `3454`
-- quantity: `1`
-- amount: `500000 KRW`
+- observed inventory item ID: `3454`
+- quantity intent: `1`
+- observed amount: `500000 KRW`
 - target: `2026-08-17 12:00:00 KST`
 
-**Blocking item:** verify the Signature Edition `shippingType` before live ARM. The UI intentionally blocks live checkout until **배송 유형 확인 완료** is checked.
+**LIVE BLOCKER:** exact Signature Edition `shippingType` must be independently verified from the exact target flow.
 
-Do not infer that creating a checkout guarantees inventory reservation.
+Do not infer:
+- shippingType from the 49,000 KRW test item
+- paymentOptionId is required by direct checkout merely because it appeared in cart
+- checkout creation guarantees inventory reservation
+- checkout handoff means payment success
 
 ## Rehearsal — 15/16 Aug
 
-### A. Safe preflight
+### A. Session/preflight rehearsal
 
-1. Open/login Chrome.
-2. Click **Preflight 테스트**.
-3. Require an OK response in the log.
-4. If authentication/session looks wrong, fix it before checkout testing.
+1. Launch the dedicated Chrome profile.
+2. Log in manually if needed.
+3. Run the safe preflight.
+4. Require a PASS with no irreversible checkout call.
+5. Restart runner/browser and verify login persistence.
+6. Verify a logged-out profile is detected as SESSION_INVALID.
 
-### B. Safe checkout rehearsal
+### B. Safe checkout-flow rehearsal
 
-Use a safe/normal product whose request fields you have verified. Do not use the 500,000 KRW target as the first live-flow test.
+Use only a normal product/flow whose exact request fields you have independently verified and for which you intentionally accept checkout creation. Do not use the 500,000 KRW target as the first end-to-end test.
 
-1. Replace URL/item/price/shipping type with the safe item.
-2. Mark shipping type verified only after checking it.
-3. Keep final payment manual.
-4. Click **Checkout Test Now** and confirm.
-5. Verify a new dynamic `checkoutNumber`, checkout navigation, and `WAITING_MANUAL`.
-6. If testing consent, read/accept the terms first, enable **약관 체크 자동화 허용**, then test it.
-7. Do not complete payment for a rehearsal item unless you intend to buy it.
+Verify:
+1. exact URL/item/amount/shipping type
+2. one checkout request only
+3. dynamic current-run `checkoutNumber`
+4. navigation to that exact checkout
+5. optional consent behavior only if pre-authorized
+6. manual payment handoff
+7. no final PG/card/OTP/3DS authorization by runner
+8. no sensitive data in logs
+
+Do not complete payment during a rehearsal unless you independently intend to buy that rehearsal item.
 
 ### C. Scheduler rehearsal
 
-1. Restore a safe test item.
-2. Set target time 5-10 minutes ahead.
-3. Save and ARM.
-4. Confirm T-30s prewarm events appear.
-5. Confirm dispatch occurs at the target and inspect timestamps.
-6. Repeat to measure real Windows/network timing variance.
+Run at least 5 safe scheduled trials.
 
-The POC must not claim millisecond accuracy until these measurements exist.
+For each:
+1. choose a safe target several minutes ahead
+2. ARM with immutable snapshot
+3. observe prewarm
+4. observe target dispatch
+5. collect:
+   - targetAt
+   - schedulerWakeAt
+   - requestStartedAt
+   - responseReceivedAt
+   - dispatchLatenessMs
+6. verify no early intentional dispatch
 
-## Windows live checklist
+Use the measured results to choose/review final `maxLatenessMs`.
 
-- Windows clock is synchronized.
-- PC sleep/hibernate is disabled during the sale window.
-- Laptop is connected to power.
-- Stable network is selected.
-- VPN/proxy changes are avoided during the run.
-- Precision Runner Chrome profile is logged in.
-- Preflight passes.
-- T1 task values are restored and double-checked.
-- Signature `shippingType` is confirmed.
-- Target time is `2026-08-17T12:00:00+09:00`.
-- No second Precision Runner instance is running.
+## Failure rehearsals
 
-Run `./scripts/preflight_windows.ps1` before the live window.
+Before LIVE, demonstrate:
+- duplicate ARM blocked
+- server 4xx stops with no bypass/replay
+- missing checkoutNumber fails closed
+- navigation failure after confirmed checkout does not create a second checkout
+- ambiguous transport does not automatically replay checkout
+- browser/profile duplicate ownership is blocked
+- logs remain redacted
 
-## Suggested live timeline
+## Windows live prerequisites
+
+All must PASS in `verification/POC_GO_NO_GO.md`:
+- Windows clock synchronized
+- sleep/hibernate disabled for the live window
+- power/network stable
+- no VPN/proxy change planned
+- dedicated Chrome profile logged in
+- preflight passes
+- target values reviewed
+- exact Signature `shippingType` confirmed
+- adapter/current site contract still valid
+- timing rehearsal complete
+- no duplicate runner instance
+- dashboard bound only to approved interface (localhost baseline)
+
+## Suggested live timeline — only after GO
 
 ### 11:40-11:50
-
-- Start runner.
-- Open/login Chrome.
-- Verify target configuration.
-- Run Preflight.
+- start approved runner revision
+- open dedicated Chrome profile
+- verify exact LIVE task snapshot
+- run fresh preflight
 
 ### By 11:55
+- review TEST/LIVE badge
+- review item/amount/time/adapter version
+- ARM once
+- leave PC awake and runner visible
 
-- Save final task.
-- ARM.
-- Leave the PC awake and runner process open.
+### T-30s
+- prewarm only
+- no irreversible checkout before target
 
-### 11:59:30
+### 12:00:00 KST
+- dispatch one allowed checkout action at/after the published permitted target instant
+- if server rejects, stop
+- if transport outcome is ambiguous, stop for manual inspection
+- do not automatically replay irreversible checkout
 
-Runner enters prewarm automatically and loads the target page plus a safe same-origin preflight.
-
-### 12:00:00
-
-Runner dispatches the checkout request from the logged-in T1 page context.
-
-On success it extracts `checkoutNumber`, navigates to checkout, optionally handles configured consent, optionally opens the payment UI, then stops at manual PG/payment authorization.
-
-If T1 rejects the request, the runner stops and records the reason. It does not attempt restriction bypass.
+### Success path
+- parse current-run checkoutNumber
+- navigate to exact checkout route
+- optional exact pre-authorized consent step
+- optional normal payment UI opening
+- state becomes `WAITING_MANUAL`
+- user performs final payment authorization manually
 
 ## Retry policy
 
-Live POC default:
+Per-step policy, not a global retry switch:
 
-- `max_retries = 0`
-- no automatic HTTP replay
-
-This is deliberately fail-closed. Replaying a checkout request can create duplicate checkout sessions or interact badly with rate limits. If a request receives a server response and fails, the runner stops and shows the reason.
-
-Transport retry support remains in the generic runner for future review, but the dashboard and persisted POC task force automatic retry off for this live use.
+- side-effect-free preflight: bounded retry may be allowed by design
+- irreversible checkout creation: **automatic replay OFF for live POC**
+- ambiguous irreversible transport: no replay; manual inspection
+- navigation after known checkout: navigation may be retried while reusing the same checkout identifier, never by creating a second checkout
 
 ## Emergency fallback
 
-Keep the browser visible. If runner state becomes `FAILED`, read the error and continue manually in the existing T1 browser if normal site controls are available.
+Keep the controlled browser visible.
 
-Do not start repeated scripts or multiple runner instances in response to failure.
+If the runner fails:
+- read side-effect status and safe next action
+- if checkout is known created, reuse/manual-navigate that checkout only when normal site behavior supports it
+- if outcome is ambiguous, inspect manually
+- do not launch multiple scripts/runner instances
+- do not compensate with repeated requests or restriction bypasses
 
 ## Evidence to collect
 
+Safe local evidence:
+- runId
+- adapter version
 - target timestamp
-- checkout dispatch timestamp
-- HTTP status
-- `checkoutNumber` (safe to record)
-- checkout navigation success
-- manual checkpoint reached
-- failure reason if any
-- dispatch variance from rehearsals
+- dispatch timestamp/lateness
+- response status/classification
+- current-run checkoutNumber only if still considered safe local metadata
+- checkout navigation result
+- manual checkpoint timestamp
+- exact failure code if any
 
-Never paste full checkout page JSON, cookies, session IDs, email, phone number, or payment data into issue logs.
+Never share/commit:
+- cookies
+- session IDs/tokens
+- Authorization/CSRF
+- full checkout JSON/HTML
+- name/email/phone/address
+- card/payment/OTP/2FA data
+
+## Final rule
+
+The day-of runbook does not override the Go/No-Go gate. Any mandatory UNKNOWN/BLOCKED item means NO-GO for automation.

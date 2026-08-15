@@ -1,24 +1,29 @@
 # Product Design
 
+> High-level product/UX summary. `design/UI_SPEC.md` and `design/STATE_MACHINE.md` are the detailed sources of truth.
+
 ## Product idea
 
-Precision Web Runner is a scheduled web-action runner. A user creates a task with a target URL, target time, and a site recipe. The local runner executes the recipe in an already-authenticated browser context.
+Precision Web Runner is a scheduled web-action runner. A user creates a task with a target URL, target time, and site adapter variables. A Windows-local runner executes the approved flow in an already-authenticated dedicated browser context.
 
-For the POC, only one recipe is implemented: T1 Adapter 001.
+For the POC, only T1 Adapter 001 is in scope.
 
 ## Core user flow
 
-1. Open dashboard.
-2. Confirm runner device is connected.
-3. Select/create task.
-4. Confirm target URL and target time.
-5. Run a safe test.
+1. Open local dashboard.
+2. Confirm runner/browser readiness.
+3. Review task and target facts.
+4. Confirm target URL, amount/item, target time, adapter version, and blockers.
+5. Run safe preflight/rehearsal.
 6. ARM the task.
-7. Preflight begins before the target.
-8. Runner executes the recipe at target time.
-9. UI shows each step and timing.
-10. Runner reaches a manual final-payment checkpoint.
-11. User finishes payment manually.
+7. Runner creates immutable ArmedRunSnapshot.
+8. T-30s prewarm begins.
+9. Runner dispatches one allowed target action at the configured permitted target instant.
+10. UI shows state, step, timing, and safe result.
+11. Dynamic response data drives checkout navigation.
+12. Optional pre-authorized consent/payment-UI handoff may run.
+13. Runner reaches `WAITING_MANUAL`.
+14. User performs final PG/payment authorization manually.
 
 ## Responsive UX
 
@@ -27,94 +32,118 @@ Selected direction: **Concept 02 — light dashboard**.
 ### Desktop
 
 Primary layout:
-- left navigation
-- top connection/time status
-- task summary
-- target time
-- runner state
-- recipe steps
-- Test / ARM / Cancel CTA area
-- run log
+- runner/browser readiness
+- TEST/LIVE mode
+- task/target summary
+- target time/countdown
+- validation blockers
+- current state
+- flow steps
+- ARM/DISARM or relevant state CTA
+- structured run log
 
-### Mobile
+### Mobile / narrow viewport
 
-The first viewport must show, without scrolling if practical:
-- task/target
-- target time
-- runner state
-- device connection
-- primary CTA
+First viewport prioritizes:
+1. runner readiness
+2. TEST/LIVE mode
+3. task/target
+4. target time/countdown
+5. current state
+6. primary CTA/blocker
 
-Detailed recipe and logs can be below the fold.
+The UI remains responsive, but **remote LAN phone control is not required for the live POC**. Security baseline is localhost-only until secure pairing/authentication is designed.
 
-## Primary states
+## Domain states
 
 ```text
 DRAFT
   -> TESTED
   -> ARMED
-  -> PREFLIGHT
+  -> PREWARMING
   -> RUNNING
   -> WAITING_MANUAL
   -> SUCCEEDED
-  -> FAILED
-  -> CANCELLED
+
+Failure/cancel paths:
+active state -> FAILED
+DRAFT/TESTED/ARMED/PREWARMING -> CANCELLED where safe
 ```
 
-A state transition always records a timestamp and reason.
+Every transition records timestamp, reason, and safe code.
 
 ## CTA rules
 
-- DRAFT: `테스트 실행`
+- DRAFT: `테스트/검증`, `Chrome 열기`; ARM disabled with reasons
 - TESTED: `ARM`
-- ARMED: `ARM 해제 / 취소`
-- PREFLIGHT: `취소`
-- RUNNING: show progress; destructive cancel requires confirmation
-- WAITING_MANUAL: `결제 계속하기` / `중단`
-- FAILED: `로그 보기` / bounded `다시 시도`
+- ARMED: `ARM 해제`
+- PREWARMING: `취소` only before irreversible dispatch
+- RUNNING: no misleading undo/cancel once request is in flight
+- WAITING_MANUAL: `브라우저에서 결제 계속`; final authorization manual
+- FAILED: next action depends on side-effect status; no generic retry for ambiguous irreversible outcomes
 
-Do not show a CTA that has no real implementation.
+Do not show a CTA that has no real implementation or safe meaning.
 
 ## Generalization model
 
-The product should not hardcode T1 into core screens or data models.
-
-A Task contains:
+A TaskDefinition contains:
 - id
 - name
 - targetUrl
-- targetTime
-- timezone
-- recipeId
-- recipeVariables
-- executionDeviceId
-- retryPolicy
-- status
-
-A Recipe contains:
-- supported URL patterns
-- variable schema
-- ordered steps
-- stop conditions
-- safety metadata
-- version
-
-A Run contains:
-- taskId
 - targetAt
+- timezone
+- adapterId
+- adapterVariables
+- consentPolicy
+- handoffPolicy
+- mode
+
+At ARM, it becomes an immutable ArmedRunSnapshot with:
+- runId
+- taskVersion
+- adapterVersion
+- normalized target
+- normalized variables
+- policy
 - armedAt
-- preflightAt
-- requestStartedAt
-- responseReceivedAt
-- currentStep
-- result
-- stopReason
-- redacted step logs
+
+A Run/Event model contains:
+- runId
+- state path
+- target/prewarm/dispatch/response timestamps
+- current step
+- side-effect status
+- safe result/stop reason
+- structured redacted events
+
+## Test vs LIVE
+
+The interface must never silently promote TEST to LIVE.
+
+LIVE ARM confirmation repeats:
+- domain/task
+- item/amount summary
+- target time
+- adapter version
+- unresolved blockers
+- manual payment boundary
+
+Unknown target-site facts that affect irreversible execution block LIVE.
 
 ## POC usability success
 
-- A first-time user can understand what will happen before pressing ARM.
-- Test mode is visually distinct from live mode.
-- The target time and execution device are obvious.
-- The manual-payment boundary is obvious.
-- On failure, the user sees which step failed instead of only a generic error.
+A first-time user should quickly understand:
+- what will run
+- when
+- which browser/device owns execution
+- whether session/preflight is ready
+- whether this is TEST or LIVE
+- what happens automatically
+- where automation stops
+- why ARM is blocked if unavailable
+
+## POC outcome semantics
+
+`checkoutNumber` creation does not imply inventory reservation or payment success.
+
+POC automated success means the configured manual-payment handoff was reached safely. Actual payment outcome remains outside the automated POC objective.

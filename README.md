@@ -2,89 +2,112 @@
 
 A local-first POC for executing an **authorized web action flow at a scheduled time** from a logged-in browser session.
 
-The first real-world adapter is T1 Membership, but the scheduler/runner core is intentionally separated from T1-specific request mapping.
+T1 Membership is Adapter 001, but the scheduler, state machine, browser bridge, and adapter contracts are designed to remain site-agnostic.
 
 ## Current status
 
-**POC IMPLEMENTATION MERGED TO `main` — Windows/T1 live rehearsal is the remaining gate.**
+**DEEP DESIGN + HARNESS FREEZE.**
 
-The current POC implements:
+Runtime code already exists in `main`, but it is currently classified as **Architecture Spike / prototype evidence**. The user explicitly requested that coding happen last, so no further runtime expansion/refactor should occur until the deep design is reviewed and approved.
 
-- local Windows scheduler outside the browser tab
-- dedicated persistent Chrome profile (login stays local)
-- responsive Concept 02 dashboard
-- task save / browser open / preflight / ARM / cancel
-- T1 checkout request adapter
-- dynamic `checkoutNumber` extraction and checkout navigation
-- fail-closed HTTP handling, duplicate execution lock, and generic bounded-retry support disabled for this live POC
-- optional pre-authorized agreement checkbox handling
-- optional payment-window opening while final PG authorization stays manual
-- structured local logs without raw cookies/response bodies
+Read first:
 
-## 17 Aug 2026 target
+- `status/CURRENT_STATUS.md`
+- `status/NEXT_ACTION.md`
+- `CLAUDE.md`
+- `harness/GATES.md`
+- `verification/POC_GO_NO_GO.md`
 
-The POC is narrowed for the 2026-08-17 12:00 KST T1 sale. The goal is to reach the checkout/payment handoff reliably; it does **not** bypass membership, sale-time, stock, queue, CAPTCHA, rate-limit, or payment controls.
+## Immediate POC target
 
-The default task contains the observed Signature Edition item values, but `shipping_type_verified` is deliberately false until the Signature Edition shipping contract is confirmed.
-
-## Quick start on Windows
-
-Requires Python 3.11+ and Google Chrome.
-
-```powershell
-.\scripts\setup_windows.ps1
-.\scripts\run_windows.ps1
-```
-
-Dashboard:
+The narrow POC target remains the 2026-08-17 T1 flow:
 
 ```text
-http://127.0.0.1:8765/
+Windows runner
+  -> dedicated logged-in Chrome profile
+  -> scheduled prewarm
+  -> one allowed target-time checkout action
+  -> dynamic checkoutNumber
+  -> checkout navigation
+  -> optional pre-authorized consent handling
+  -> manual payment handoff
 ```
 
-Use **Chrome 열기 / 로그인** once and sign in to T1 inside the dedicated Precision Runner Chrome profile.
+The runner never bypasses membership, sale-time, stock, queue, CAPTCHA, rate-limit, authorization, or payment controls. Final PG/3DS/OTP/payment authorization remains manual.
 
-Before ARM:
+## Deep-design baseline
 
-1. Verify the exact target URL/item/price.
-2. Verify `shippingType` and tick **배송 유형 확인 완료**.
-3. Run Preflight.
-4. Rehearse with a safe/test item before using the high-value target.
-5. Disable Windows sleep for the live window.
+### System / contracts
+- `design/SYSTEM_DESIGN.md`
+- `design/COMPONENT_CONTRACTS.md`
+- `design/STATE_MACHINE.md`
+- `design/SEQUENCE_FLOWS.md`
 
-See `docs/POC_RUNBOOK_2026-08-17.md`.
+### Reliability / security
+- `design/ERROR_POLICY.md`
+- `design/TIMING_DESIGN.md`
+- `design/BROWSER_LIFECYCLE.md`
+- `design/SECURITY_MODEL.md`
+- `design/OBSERVABILITY_SPEC.md`
 
-## Safety boundary
+### Extensibility / UX
+- `design/ADAPTER_SPEC.md`
+- `design/UI_SPEC.md`
 
-The runner fails closed when the target server rejects a request. It does not implement:
+## Harness
 
-- membership/authorization bypass
-- sale-time bypass
-- CAPTCHA or queue bypass
-- anti-bot/rate-limit evasion
-- payment/3DS/2FA bypass
-- credential/cookie exfiltration
+- `CLAUDE.md` — project constitution
+- `harness/HARNESS_OVERVIEW.md` — review roles and process architecture
+- `harness/GATES.md` — mandatory context/design/implementation/live gates
+- `status/CURRENT_STATUS.md` — current phase and known facts
+- `status/NEXT_ACTION.md` — one next objective
+- `prompts/META_PROMPTING.md` — context dump → prompt distillation → result verification
+- `prompts/DESIGN_REVIEW_PROMPT.md` — deep-design review prompt
 
-Final payment authorization remains manual. Automatic checkout replay is off for the live POC.
+## Verification
 
-## Design documents
+- `verification/ACCEPTANCE_MATRIX.md` — Given/When/Expected evidence matrix
+- `verification/POC_GO_NO_GO.md` — mandatory live gate
+- `docs/POC_RUNBOOK_2026-08-17.md` — rehearsal/live runbook (must be reconciled after design approval)
 
-- `CLAUDE.md` — development constitution and gates
-- `docs/POC_SCOPE.md` — POC boundary and Definition of Done
-- `docs/PRODUCT_DESIGN.md` — product and UX design
-- `docs/ARCHITECTURE.md` — control / execution / adapter architecture
-- `docs/BLINDSPOT_AND_TRAPS.md` — blindspot sweep and implementation traps
-- `docs/T1_EVIDENCE.md` — sanitized observed T1 request flow
-- `docs/UI_CONCEPTS.md` — four UI concepts and selected Concept 02
-- `docs/REFERENCE_RESEARCH.md` — external reference adoption decisions
-- `docs/DECISIONS_AND_INTERVIEW.md` — decisions and open questions
-- `docs/IMPLEMENTATION_PLAN.md` — phased plan
-- `docs/DEVIATIONS.md` — plan changes and reasons
-- `docs/POC_RUNBOOK_2026-08-17.md` — practical rehearsal/live runbook
-- `prompts/META_PROMPTING.md` — context dump → prompt distillation → verification
+## Existing prototype
+
+The repository currently contains a Python/Playwright local prototype with:
+- local scheduler
+- dedicated persistent Chrome profile
+- Concept 02 responsive dashboard
+- T1 checkout adapter
+- checkoutNumber extraction/navigation
+- local logs and basic tests
+
+Do **not** treat this implementation as final architecture. After design approval it must be reviewed component-by-component as `KEEP / CHANGE / DELETE` against the contracts under `design/`.
+
+## Known LIVE blockers
+
+- Signature Edition `shippingType` is still not independently verified.
+- Windows/T1 session persistence has not yet been rehearsed on the user's machine.
+- Actual Windows scheduling variance has not yet been measured.
+- Current target-site behavior must be rechecked before live use.
+
+Therefore current live status is **NO-GO / DESIGN IN REVIEW**.
+
+## Original supporting documents
+
+- `docs/POC_SCOPE.md`
+- `docs/PRODUCT_DESIGN.md`
+- `docs/ARCHITECTURE.md`
+- `docs/BLINDSPOT_AND_TRAPS.md`
+- `docs/T1_EVIDENCE.md`
+- `docs/UI_CONCEPTS.md`
+- `docs/REFERENCE_RESEARCH.md`
+- `docs/DECISIONS_AND_INTERVIEW.md`
+- `docs/IMPLEMENTATION_PLAN.md`
+- `docs/DEVIATIONS.md`
 
 ## Roadmap
 
-1. **POC** — timed local runner + T1 adapter, stopping at manual payment authorization.
-2. **MVP** — second structurally different adapter and generic recipe editor.
-3. **General platform** — user URLs + adapters/recipes + broader device support.
+1. **Deep Design + Harness** — current phase.
+2. **Implementation reconciliation** — only after design approval.
+3. **POC rehearsal / live decision** — only after acceptance and Go/No-Go evidence.
+4. **MVP** — second structurally different adapter to validate abstraction.
+5. **General platform** — user URLs + adapters/recipes + broader device support.
