@@ -2,40 +2,49 @@
 
 ## Single next objective
 
-Complete and review the **Deep Design + Harness baseline** before modifying runtime code.
+**User review / approval of the Deep Design + Harness baseline.**
 
-## Required order
+The design package is internally reviewed and has no unresolved design BLOCKER. Runtime remains frozen.
 
-1. Read `status/CURRENT_STATUS.md`.
-2. Read `CLAUDE.md` and `docs/POC_SCOPE.md`.
-3. Review all files under `design/` created for Deep Design.
-4. Run the harness gates in `harness/GATES.md`.
-5. Resolve contradictions or mark them as explicit assumptions.
-6. Review `verification/ACCEPTANCE_MATRIX.md` and `verification/POC_GO_NO_GO.md`.
-7. Update `docs/DEVIATIONS.md` for any material plan change.
-8. Ask the user only for decisions that materially change architecture or live behavior.
-9. Obtain design approval.
-10. Only then create an implementation-reconciliation plan.
+## Review order
 
-## Do not do next
+1. `status/CURRENT_STATUS.md`
+2. `design/DESIGN_REVIEW_REPORT.md`
+3. `design/DEEP_BLINDSPOT_REVIEW.md`
+4. `design/SYSTEM_DESIGN.md`
+5. `design/COMPONENT_CONTRACTS.md`
+6. `design/STATE_MACHINE.md`
+7. `design/ERROR_POLICY.md`
+8. `design/TIMING_DESIGN.md`
+9. `design/SECURITY_MODEL.md`
+10. `design/ADAPTER_SPEC.md`
+11. `design/UI_SPEC.md`
+12. `verification/ACCEPTANCE_MATRIX.md`
+13. `verification/POC_GO_NO_GO.md`
 
-- Do not add features.
-- Do not refactor the prototype to match assumptions before design review.
-- Do not add a second site.
-- Do not add cloud/mobile-only execution.
-- Do not automate final payment authorization.
+## Decisions to notice during approval
 
-## Completion signal
+- existing runtime is an Architecture Spike, not final design
+- dedicated Chrome profile remains the session strategy
+- live POC dashboard defaults to localhost-only
+- responsive mobile/narrow UI remains, but remote phone control is deferred
+- LIVE checkout POST automatic replay is disabled
+- ambiguous irreversible outcome requires manual inspection
+- target action is never intentionally dispatched before the permitted opening time
+- final payment authorization remains manual
 
-The next action is complete when the repository can answer, without hidden assumptions:
+## If approved
 
-- who owns scheduling accuracy,
-- where authentication lives,
-- what each component may call,
-- every state transition,
-- what is retryable and what is not,
-- how duplicate execution is prevented,
-- what data is logged/redacted,
-- what a site adapter must implement,
-- what the user sees in each state,
-- and exactly what must pass before live use.
+Next technical phase is **Implementation Reconciliation**, starting with a KEEP / CHANGE / DELETE inventory of existing prototype code against the approved contracts.
+
+Do not jump directly to feature additions.
+
+## If not approved
+
+Change the design documents first, re-run `prompts/DESIGN_REVIEW_PROMPT.md`, update `docs/DEVIATIONS.md` if the plan changed materially, and keep runtime frozen.
+
+## LIVE remains separate
+
+Design approval does not equal live approval.
+
+LIVE requires all mandatory evidence in `verification/POC_GO_NO_GO.md`, including Signature `shippingType`, Windows/browser rehearsal, timing measurements, and target-contract freshness.
