@@ -1,93 +1,128 @@
 # Decisions & Interview
 
-This file captures what is already clear from the conversation and separates it from assumptions that still need confirmation before implementation.
+This file captures explicit user intent, accepted design defaults, and the few facts that still require evidence before LIVE use.
 
-## Inferred intent
+## User intent
 
 The user wants a practical tool that can:
 - prepare a timed web action in advance
 - execute automatically at a target time
-- work through a logged-in browser session
-- show a clear web/mobile control UI
-- begin with T1 but later support other target URLs through reusable recipes/adapters
+- use an already-authenticated local browser session
+- present a clear responsive web/mobile design
+- start with T1 but later support other target URLs through site adapters/recipes
 
-The immediate goal is a **POC**, not a full SaaS platform.
+Immediate objective: **narrow POC**, not SaaS/general platform.
+
+The user also explicitly clarified on 2026-08-15:
+- **deep design and harness first**
+- coding comes last
+
+Therefore current runtime code is Architecture Spike evidence and is frozen until design approval.
 
 ## Primary user
 
-Current assumption:
-- primary user: the repository owner / one trusted individual
-- device: Windows PC
-- mobile: secondary control/monitor screen
+POC primary user:
+- one trusted repository owner/user
+- Windows PC
+- local browser
 
-This avoids prematurely designing multi-user authentication, teams, billing, or cloud secret storage.
+No multi-user/team/account/billing design in POC.
 
-## Product decisions already accepted
+## Product decisions
 
 - Repository: `storm-credit/precision-web-runner`
 - Product working name: Precision Web Runner / Precision Runner
 - First adapter: T1 Membership
 - UI: Concept 02 light responsive dashboard
-- T1 must not be hardcoded into core modules
-- Target URLs become configurable through Tasks + Recipes, not URL-only magic
-- Design-first workflow
-- Blindspot sweep before implementation
-- Pre-implementation trap gate
-- Plan deviations must be recorded
-- Final payment is manual by default
-- Server-side restrictions are not bypassed
+- T1-specific values stay outside generic core contracts
+- future URLs require Adapter/Recipe contracts; URL alone is not automation
+- server-side restrictions are not bypassed
+- final payment authorization is manual
+- unknown target facts block LIVE rather than being guessed
 
-## POC assumptions to use unless the user changes them
+## Resolved architecture decisions
 
-1. The Windows PC can remain powered on and awake while a task is armed.
-2. The user can log into T1 manually before arming.
-3. The POC may use a dedicated browser profile if that is safer/more reliable than attaching to the user's everyday profile.
-4. The phone and PC can be on the same trusted network for POC mobile control.
-5. One task runs at a time.
-6. Local storage is acceptable for POC task/run metadata.
-7. The POC stops before final payment authorization.
+### D1. Browser session strategy — RESOLVED
+Use a **dedicated persistent Chrome profile** for the POC.
 
-## Questions to resolve before implementation lock
+Why:
+- keeps authentication local
+- isolates normal browsing
+- repeatable ownership/lifecycle
+- no cookie export required
 
-These questions should be asked only when their answer becomes necessary; they do not block the current design documentation.
+### D2. Control-plane exposure — RESOLVED
+Live POC dashboard defaults to **localhost-only**.
 
-### Q1. Browser session strategy
+Responsive mobile/narrow layout remains required, but remote phone/LAN control is deferred until pairing/authentication/CSRF protection is separately designed.
 
-Preferred choice?
-- A. dedicated automation Chrome profile (recommended for repeatability)
-- B. attach to currently open everyday Chrome
+### D3. Consent behavior — RESOLVED AS POLICY
+Auto-consent may exist as an optional configuration only when the user has already reviewed and accepted the applicable terms.
 
-### Q2. Mobile control scope
+Rules:
+- default OFF
+- immutable once armed
+- exact semantic locator required
+- locator mismatch -> manual/fail; never coordinate guess
+- final payment remains manual
 
-Is same-Wi-Fi local access sufficient for the POC, or must the phone be able to arm/check the runner from outside the home network?
+### D4. Timing policy — RESOLVED BASELINE
+Use the published permitted target instant with synchronized Windows clock and monotonic scheduling after ARM.
 
-Recommended POC default: same trusted network only.
+Do not intentionally dispatch before the allowed opening time to compensate for latency.
+Do not add timing offsets until rehearsal evidence justifies a reviewed change.
 
-### Q3. Consent behavior
+### D5. Irreversible retry policy — RESOLVED BASELINE
+Automatic replay of checkout creation is **OFF** for live POC unless site-specific idempotency is independently proven.
 
-The checkout consent step can technically be configured as an automated click once the user has reviewed and accepted the applicable terms. Should the POC:
-- A. auto-click that configured consent step
-- B. stop there for user confirmation
+Read-only preflight can use bounded retry when declared side-effect-free.
 
-Current design supports either; final payment remains manual.
+### D6. Existing code status — RESOLVED
+Existing `src/`, `tests/`, and `scripts/` are an Architecture Spike. They are not the design source of truth and will later be reconciled as KEEP / CHANGE / DELETE.
 
-### Q4. Timing policy
+## POC assumptions accepted for design
 
-Should the target dispatch be:
-- exact configured local time based on synchronized PC clock
-- configurable offset (for example target + N ms) after measurements
+1. Windows PC can remain powered on and awake during an armed live window.
+2. User can log into T1 manually before ARM.
+3. One live task/run is active at a time.
+4. Local persistence is acceptable for non-secret task/run metadata.
+5. Payment/PG final authorization remains user-controlled.
 
-Recommended: start with exact synchronized target and log measured error; only add offset after evidence.
+These assumptions still require rehearsal where runtime behavior matters.
 
-### Q5. Retry policy
+## Evidence still required before LIVE
 
-Recommended safe default:
-- one primary attempt
-- at most a small bounded number of retries only for explicitly retryable transport/server errors
-- never retry an ambiguous success automatically
+### E1. Signature shippingType
+The exact Signature Edition `shippingType` remains UNKNOWN.
 
-Exact numbers should be chosen after the architecture spike.
+This is a LIVE ARM blocker.
 
-## Interview completion rule
+### E2. Windows session persistence
+Dedicated Chrome login persistence/restart behavior must be observed on the user's Windows PC.
 
-Before implementation begins, convert unresolved answers into explicit decisions in this file. Do not leave an important execution/security choice as an implicit assumption in code.
+### E3. Timing variance
+Actual scheduler/dispatch lateness must be measured over safe rehearsals before selecting final `maxLatenessMs`.
+
+### E4. Target contract freshness
+T1 flow must be rechecked near rehearsal/live time for material API/page changes.
+
+## Question-induction rule
+
+Do not ask the user generic interview questions merely because a template contains them.
+
+Ask only when an unresolved answer would materially change:
+- architecture
+- security
+- irreversible behavior
+- live readiness
+- UX semantics
+
+For evidence questions that can be answered by a safe rehearsal or repository inspection, perform/read that evidence before asking the user to repeat information.
+
+## Design-approval rule
+
+Implementation reconciliation may begin only after:
+- deep design review finds no unresolved BLOCKER
+- the user approves the baseline
+
+LIVE use additionally requires `verification/POC_GO_NO_GO.md` PASS.
