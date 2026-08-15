@@ -1,10 +1,7 @@
-"""Browser compatibility surface during R5/R6 migration.
+"""Compatibility import name for the generic BrowserBridge.
 
-`BrowserBridge` is the new generic browser contract. The old `RunnerService`
-still imports `BrowserWorker`, so R5 points that name at a quarantined legacy
-facade. R6 removes the facade when orchestration consumes AdapterPlan directly.
-
-No site adapter is imported by this browser module itself.
+R6 migrated RunnerService to AdapterPlan + BrowserResult directly, so the
+site-specific legacy browser facade is no longer part of the execution path.
 """
 
 from .browser_bridge import (
@@ -15,9 +12,8 @@ from .browser_bridge import (
     OpenSpec,
     PlaywrightDriver,
 )
-from .legacy_t1_browser_facade import LegacyT1BrowserFacade
 
-BrowserWorker = LegacyT1BrowserFacade
+BrowserWorker = BrowserBridge
 
 __all__ = [
     "BrowserBridge",
