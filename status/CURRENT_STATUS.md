@@ -2,42 +2,52 @@
 
 ## Phase
 
-**DEEP DESIGN + HARNESS FREEZE.**
+**DEEP DESIGN BASELINE COMPLETE — USER REVIEW / APPROVAL PENDING.**
 
-Application code already exists in `main`, but it is treated as an **Architecture Spike / prototype evidence only** until the deep-design gate is approved. No feature expansion or code refactor is allowed during this phase unless a design document explicitly requires a tiny measurement spike.
+Runtime code already present in the repository remains **Architecture Spike / prototype evidence only**. No feature expansion or runtime reconciliation occurs until the user approves the design baseline.
 
 ## Why this phase exists
 
-The 2026-08-17 live target caused implementation to start before the full design/harness package was complete. The repository now corrects that order: design contracts, failure policy, timing, security, adapter boundary, UX states, acceptance tests, and release gates are made explicit first.
+The 2026-08-17 live target caused implementation to begin before the full design/harness package was complete. The repository has now corrected that order by making the architecture contracts, failure policy, timing, security, adapter boundary, UX states, acceptance evidence, and live release gate explicit.
 
-## Completed
+## Deep design completed
 
-- Product goal and POC scope
-- T1 Adapter 001 evidence capture
-- Four UI concepts and selection of Concept 02
-- First blindspot sweep / implementation-trap check
-- High-level local-first architecture
-- Initial CLAUDE.md workflow rules
-- Meta-prompting guide
-- Architecture Spike implementation proving scheduler/browser/adapter feasibility
-- CI unit tests for the spike
+- System Design v1
+- Component Contracts v1
+- Run State Machine v1
+- Normal/failure Sequence Flows v1
+- Error taxonomy / ambiguity / retry policy
+- Timing and scheduling design
+- Browser/session lifecycle
+- Security threat model
+- Observability/redaction specification
+- Adapter Contract v1
+- Responsive UI Specification v1
+- Second-pass Deep Blindspot Review
+- Deep Design Review Report
 
-## In progress in this branch
+## Harness completed
 
-- Deep system design
-- Component contracts
-- State-machine contract
-- Normal/failure sequence flows
-- Error taxonomy and retry policy
-- Timing design and measurement policy
-- Security / local threat model
-- Generic Adapter Contract v1
-- Detailed responsive UI behavior
-- Harness gates
-- Acceptance matrix
-- POC Go/No-Go gate
+- `CLAUDE.md` design-freeze constitution
+- Context → Interview → Blindspot → Trap → Design → Review → Approval → Implementation → Verification gates
+- explicit reviewer lenses/roles
+- repository-native current-status / next-action memory
+- deviation discipline
+- meta-prompting process
+- dedicated design-review prompt
+- acceptance matrix
+- live Go/No-Go gate
 
-## Frozen during this phase
+## Review verdict
+
+`design/DESIGN_REVIEW_REPORT.md`:
+
+- Design blockers: none currently unresolved
+- Design baseline: **PASS FOR USER REVIEW**
+- Implementation: **FROZEN / NOT YET RECONCILED**
+- Live: **NO-GO**
+
+## Frozen until approval
 
 - `src/`
 - `tests/`
@@ -46,15 +56,16 @@ The 2026-08-17 live target caused implementation to start before the full design
 - new automation features
 - generalized URL/AI recipe generation
 
-Existing runtime code may be referenced as evidence, but design must not be bent merely to match prototype implementation.
-
-## Known unresolved live facts
+## Known unresolved LIVE facts
 
 - Signature Edition `shippingType` is not independently verified.
-- Live Windows scheduling variance is not yet measured.
+- Windows scheduling variance is not yet measured.
 - T1 authentication/session persistence has not yet been rehearsed on the user's Windows machine.
-- Exact server-side semantics of checkout creation vs inventory reservation are unknown and must not be inferred.
+- Current T1 contract freshness must be rechecked before live use.
+- Checkout creation must never be inferred to mean inventory reservation or payment success.
 
-## Exit condition
+## Next phase trigger
 
-This phase exits only when `verification/POC_GO_NO_GO.md` has no unresolved design blockers and the user approves the design baseline. Only then may implementation be reconciled against the design.
+Only explicit user approval of the deep-design baseline opens **Implementation Reconciliation**.
+
+That next phase starts with a KEEP / CHANGE / DELETE inventory of the existing Architecture Spike. It does not start with new feature coding.
