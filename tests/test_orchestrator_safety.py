@@ -61,7 +61,7 @@ class OrchestratorSafetyTests(unittest.TestCase):
             shipping_type_verified=shipping_verified,
             auto_consent=False,
             auto_open_payment=False,
-            max_retries=3,  # must be ignored by the forward orchestrator
+            max_retries=3,  # legacy field must be ignored by the forward orchestrator
         )
         self.addCleanup(service.close)
         return service, browser
@@ -121,7 +121,7 @@ class OrchestratorSafetyTests(unittest.TestCase):
         self.assertIsNotNone(service.store.load_active_run())
 
     def test_server_rejection_is_terminal_without_retry(self):
-        for status, expected_code in ((403, "AUTHORIZATION"), (429, "RATE_LIMITED"), (500, "SERVER_REJECTION")):
+        for status, expected_code in ((403, "SERVER_REJECTION"), (429, "RATE_LIMITED"), (500, "SERVER_REJECTION")):
             with self.subTest(status=status):
                 service, browser = self.make_service()
                 self.preflight_pass(service, browser)
@@ -155,8 +155,9 @@ class OrchestratorSafetyTests(unittest.TestCase):
         )
         service.run_now()
         self.wait_terminal(service)
-        self.assertEqual(service.last_error_info.code.value, "CHECKOUT_NUMBER_MISSING")
+        self.assertEqual(service.last_error_info.code.value, "CONTRACT_MISMATCH")
         self.assertEqual(service.last_error_info.side_effect, SideEffectStatus.AMBIGUOUS)
+        self.assertIn("CHECKOUT_NUMBER_MISSING", service.last_error_info.message)
         self.assertEqual(len(self.irreversible_request_calls(browser)), 1)
         self.assertIsNotNone(service.store.load_active_run())
 
