@@ -81,7 +81,8 @@ class ObservabilityTests(unittest.TestCase):
             },
         )
         raw = path.read_text(encoding="utf-8")
-        self.assertIn('"httpStatus": 200', raw)
+        payload = json.loads(raw)
+        self.assertEqual(payload["safe_detail"]["httpStatus"], 200)
         for forbidden in ("RAW_BODY_SECRET", "RAW_RESPONSE_SECRET", "RAW_REQUEST_SECRET", "RAW_HTML_SECRET"):
             self.assertNotIn(forbidden, raw)
 
@@ -160,10 +161,13 @@ class ObservabilityTests(unittest.TestCase):
         self.assertEqual([event.code for event in events], ["E3", "E4", "E5"])
 
     def test_file_byte_limit_is_bounded(self):
-        logger, path = self.make_logger(max_records=100, max_file_bytes=900, max_detail_value_chars=80)
+        # The cap must be large enough for one typed event. The test verifies
+        # retention/trimming, not an impossible cap smaller than the schema.
+        max_bytes = 2_048
+        logger, path = self.make_logger(max_records=100, max_file_bytes=max_bytes, max_detail_value_chars=80)
         for index in range(20):
             self.emit(logger, code=f"E{index}", detail={"reason": "x" * 80})
-        self.assertLessEqual(path.stat().st_size, 900)
+        self.assertLessEqual(path.stat().st_size, max_bytes)
         self.assertGreater(len(logger.read_recent(100)), 0)
 
     def test_recent_events_reconstruct_state_path_without_secret_fields(self):
