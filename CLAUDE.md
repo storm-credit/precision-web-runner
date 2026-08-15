@@ -2,9 +2,18 @@
 
 ## 0. Current phase
 
-**CONTROLLED IMPLEMENTATION — R1 COMPLETE, R2 NEXT.**
+**CONTROLLED IMPLEMENTATION — R1-R3 + C1 COMPLETE, R4 NEXT.**
 
-Deep Design + Harness + Implementation Reconciliation are complete, Harness Gate 6 passed, and the user explicitly approved continuing into coding. Runtime work is now allowed **only one approved R-slice at a time** according to `design/IMPLEMENTATION_READY_PLAN.md`.
+Deep Design + Harness + Implementation Reconciliation are complete, Harness Gate 6 passed, and the user explicitly approved coding. Runtime work is allowed **only one approved R-slice at a time** according to `design/IMPLEMENTATION_READY_PLAN.md`.
+
+Completed and reviewed:
+- R1 Domain Contracts
+- R2 Local Store / Atomic ARM / Restart Safety
+- R3 Scheduler / Timing Contract
+- Checkpoint C1 foundation review
+
+Current approved slice: **R4 Adapter Contract + T1 Adapter Migration**.
+Do not start R5/R6 implicitly inside R4.
 
 Current permission:
 - current approved slice (`status/NEXT_ACTION.md`): allowed
@@ -12,18 +21,17 @@ Current permission:
 - unrelated `src/`, `tests/`, `scripts/`, dependencies: prohibited
 - speculative/future features: prohibited
 
-R1 Domain Contracts is complete and reviewed. R2 Local Store / Atomic ARM / Restart Safety is next. Do not start R3 implicitly inside R2.
-
 Read first:
 1. `status/CURRENT_STATUS.md`
 2. `status/NEXT_ACTION.md`
-3. `harness/IMPLEMENTATION_GATE_CHECKLIST.md`
-4. `harness/GATES.md`
-5. `docs/POC_SCOPE.md`
-6. `design/IMPLEMENTATION_READY_PLAN.md`
-7. `design/IMPLEMENTATION_RECONCILIATION.md`
-8. `verification/IMPLEMENTATION_GAP_MATRIX.md`
-9. remaining `design/*` and `verification/*`
+3. `verification/C1_FOUNDATION_REVIEW.md`
+4. `harness/IMPLEMENTATION_GATE_CHECKLIST.md`
+5. `harness/GATES.md`
+6. `docs/POC_SCOPE.md`
+7. `design/IMPLEMENTATION_READY_PLAN.md`
+8. `design/IMPLEMENTATION_RECONCILIATION.md`
+9. `verification/IMPLEMENTATION_GAP_MATRIX.md`
+10. remaining `design/*` and `verification/*`
 
 ## 1. Operating principles
 
@@ -80,6 +88,12 @@ Every implementation slice must:
 - update status after verification
 
 A failed implementation-gate checkbox stops the slice or triggers replanning.
+
+Checkpoint rule:
+- C1 after R1-R3: PASS
+- C2 after R4-R6: pending
+- C3 after R7-R9: pending
+- C4/R10 before LIVE: pending
 
 ## 4. POC goal
 
@@ -159,7 +173,7 @@ Must preserve:
 - WAITING_MANUAL is not PAID
 - restart/ambiguous outcome never silently replays
 
-R1 established the domain-contract types. Later slices must migrate active runtime behavior onto them rather than expanding the legacy compatibility layer.
+R1 established the generic domain; R2 enforces durable active snapshots/restart blocking; R3 consumes snapshot timing through a typed scheduler. Later slices must migrate remaining legacy runtime onto these contracts rather than expanding compatibility layers.
 
 ## 9. Browser/session rules
 
@@ -193,6 +207,12 @@ Every adapter has:
 
 Unknown fields affecting irreversible LIVE execution block ARM.
 
+For T1 Adapter 001 specifically:
+- observed origin/direct-checkout path/dynamic checkoutNumber behavior may be encoded from evidence
+- Signature `inventoryItemId=3454` and amount `500000 KRW` are observed facts
+- Signature-specific `shippingType` remains UNKNOWN and must block LIVE until independently verified
+- cart-only `paymentOptionId` must not be merged into direct-checkout shape without evidence
+
 No arbitrary stored `eval` recipe language.
 
 ## 11. Error/retry rules
@@ -212,17 +232,19 @@ Confirmed checkout + navigation failure => reuse known checkout identifier; do n
 
 ## 12. Timing rules
 
-Use `design/TIMING_DESIGN.md`.
+Use `design/TIMING_DESIGN.md` and the R3 Scheduler contract.
 
 - wall clock defines user target instant
 - monotonic clock owns waiting after ARM
 - T-30s prewarm baseline
 - no irreversible prewarm request
-- record schedulerWakeAt/requestStartedAt/responseReceivedAt and derived lateness
-- detect sleep/wake or clock discontinuity
-- `maxLatenessMs` belongs to ArmedRunSnapshot and is selected from rehearsal evidence
+- typed PREWARM_DUE / TARGET_DUE / CANCELLED / LATE / CLOCK_DISCONTINUITY signals
+- severe wait overshoot/suspend-like stall fails closed
+- `maxLatenessMs` belongs to ArmedRunSnapshot
 - do not intentionally dispatch before published opening time
-- do not claim millisecond/server-synchronized precision without measurement
+- do not claim millisecond/server-synchronized precision without R10 measurement
+
+The current 2000ms max-lateness default is provisional; R10 must confirm/select the LIVE value from >=5 Windows rehearsals.
 
 ## 13. Observability/security rules
 
@@ -299,6 +321,8 @@ Before each coding slice, re-check:
 
 Reject shortcuts such as browser-only precision timers, hardcoded dynamic IDs, generated CSS hashes as sole locators, guessed clicks, unbounded retry, automatic irreversible replay, payment authorization automation, or server restriction bypass.
 
+If a new blind spot is found during a slice, add a failing test/contract check before closing the slice where practical. The R3 sleep/stall overshoot case is the model for this behavior.
+
 ## 18. Testing/verification rules
 
 `verification/ACCEPTANCE_MATRIX.md`, `verification/IMPLEMENTATION_GAP_MATRIX.md`, and per-slice review evidence define completion.
@@ -322,6 +346,8 @@ Unknown mandatory rows = NO-GO.
 If reality differs materially from approved design or implementation-ready plan, update `docs/DEVIATIONS.md` before claiming completion.
 
 Record original plan, changed area, what/why, impact, reversibility, follow-up verification, and user-approval need.
+
+Normal defect fixes or within-contract hardening that do not change architecture/scope may be recorded in the slice review instead of DEVIATIONS.
 
 ## 20. Meta-prompting rule
 

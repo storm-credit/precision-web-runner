@@ -4,7 +4,7 @@ import json
 import threading
 import time
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -21,15 +21,18 @@ from .models import (
     TaskConfig,
     TaskDefinition,
 )
+from .scheduler import ScheduleRequest, Scheduler, SchedulerLease, SchedulerSignalKind
 from .store import LocalStore, StoreCorrupt, StoreError
 from .t1_adapter import AdapterError, T1Adapter
-from .timing import wait_until
 
 _ACTIVE_STATES = {
     RunnerState.ARMED,
     RunnerState.PREWARMING,
     RunnerState.RUNNING,
 }
+
+_DEFAULT_PREWARM_LEAD_MS = 30_000
+_DEFAULT_MAX_LATENESS_MS = 2_000
 
 
 class RunnerService:
@@ -38,6 +41,7 @@ class RunnerService:
         data_dir: Path | None = None,
         browser: BrowserWorker | None = None,
         store: LocalStore | None = None,
+        scheduler: Scheduler | None = None,
     ):
         self.data_dir = data_dir or (Path.home() / ".precision-web-runner")
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -48,9 +52,11 @@ class RunnerService:
         self._execution_lock = threading.Lock()
         self._cancel = threading.Event()
         self._schedule_thread: threading.Thread | None = None
+        self._schedule_lease: SchedulerLease | None = None
         self.browser = browser or BrowserWorker(self.profile_dir)
         self.adapter = T1Adapter()
         self.store = store or LocalStore(self.data_dir)
+        self.scheduler = scheduler or Scheduler()
         self.task = self._load_task()
         self.state = RunnerState.DRAFT
         self.events: list[Event] = []
@@ -117,8 +123,8 @@ class RunnerService:
             adapter_version=adapter_version,
             mode=mode,
             adapter_variables={"legacy_task_config": self.task.to_dict()},
-            prewarm_lead_ms=30_000,
-            max_lateness_ms=2_000,
+            prewarm_lead_ms=_DEFAULT_PREWARM_LEAD_MS,
+            max_lateness_ms=_DEFAULT_MAX_LATENESS_MS,
             manual_boundary=ManualBoundaryPolicy(
                 auto_consent=self.task.auto_consent,
                 open_payment_ui=self.task.auto_open_payment,
@@ -187,9 +193,6 @@ class RunnerService:
         errors = self.adapter.validate_target(self.task)
         if errors:
             raise ValueError("; ".join(errors))
-        target = self.task.target_datetime()
-        if target <= datetime.now(target.tzinfo):
-            raise ValueError("target time is in the past")
 
         with self._lock:
             self._assert_recovery_clear()
@@ -197,6 +200,17 @@ class RunnerService:
                 raise RuntimeError("runner is already armed or running")
 
             snapshot = self._new_snapshot(RunMode.LIVE)
+            schedule_lease = self.scheduler.arm(
+                ScheduleRequest(
+                    run_id=snapshot.run_id,
+                    target_at=snapshot.target_at,
+                    prewarm_lead_ms=snapshot.prewarm_lead_ms,
+                    max_lateness_ms=snapshot.max_lateness_ms,
+                )
+            )
+
+            # R2 invariant remains authoritative: durable active snapshot before
+            # scheduler thread activation or browser work.
             self.store.create_active_run(
                 snapshot,
                 state=RunnerState.ARMED,
@@ -206,12 +220,21 @@ class RunnerService:
 
             self.active_snapshot = snapshot
             self.active_run_id = snapshot.run_id
+            self._schedule_lease = schedule_lease
             self._cancel = threading.Event()
             self.state = RunnerState.ARMED
             self.last_error = None
             self.last_checkout_number = None
             self._consent_handled = False
-            self._event("info", "Runner armed", {"target": target.isoformat(), "runId": snapshot.run_id})
+            self._event(
+                "info",
+                "Runner armed",
+                {
+                    "target": snapshot.target_at.isoformat(),
+                    "runId": snapshot.run_id,
+                    "maxLatenessMs": snapshot.max_lateness_ms,
+                },
+            )
             self._schedule_thread = threading.Thread(target=self._scheduled_run, daemon=True, name="scheduled-run")
             self._schedule_thread.start()
         return self.status()
@@ -235,6 +258,7 @@ class RunnerService:
                 self.state = RunnerState.CANCELLED
                 self.active_run_id = None
                 self.active_snapshot = None
+                self._schedule_lease = None
                 self._event("warning", "Runner cancelled")
         return self.status()
 
@@ -309,15 +333,22 @@ class RunnerService:
 
     def _scheduled_run(self) -> None:
         snapshot = self.active_snapshot
-        if snapshot is None:
-            self._fail("active snapshot missing before schedule", error_code="LOCAL_STORAGE_FAILURE")
+        lease = self._schedule_lease
+        if snapshot is None or lease is None:
+            self._fail("active scheduler snapshot/lease missing", error_code="LOCAL_STORAGE_FAILURE")
             return
-        target = snapshot.target_at
-        prewarm_at = target - timedelta(milliseconds=snapshot.prewarm_lead_ms)
-        if datetime.now(target.tzinfo) < prewarm_at:
-            if not wait_until(prewarm_at, self._cancel):
-                return
-        if self._cancel.is_set():
+
+        prewarm_signal = lease.wait_for_prewarm(self._cancel)
+        if prewarm_signal.kind is SchedulerSignalKind.CANCELLED:
+            return
+        if prewarm_signal.kind is SchedulerSignalKind.CLOCK_DISCONTINUITY:
+            self._fail(
+                f"clock discontinuity detected before prewarm ({prewarm_signal.clock_skew_ms:.0f} ms)",
+                error_code="CLOCK_DISCONTINUITY",
+            )
+            return
+        if prewarm_signal.kind is not SchedulerSignalKind.PREWARM_DUE:
+            self._fail(f"unexpected prewarm scheduler signal: {prewarm_signal.kind.value}")
             return
 
         try:
@@ -327,7 +358,11 @@ class RunnerService:
             return
         with self._lock:
             self.state = RunnerState.PREWARMING
-            self._event("info", "Prewarming browser")
+            self._event(
+                "info",
+                "Prewarming browser",
+                {"schedulerLatenessMs": round(prewarm_signal.lateness_ms, 3)},
+            )
         try:
             self.browser.submit("open", self.task.target_url, timeout=40)
             result = self.browser.submit("preflight", self.task, timeout=40)
@@ -338,14 +373,34 @@ class RunnerService:
             return
 
         self._event("info", "Preflight passed", {"status": result.get("status")})
-        if not wait_until(target, self._cancel):
+
+        target_signal = lease.wait_for_target(self._cancel)
+        if target_signal.kind is SchedulerSignalKind.CANCELLED:
             return
-        if self._cancel.is_set():
+        if target_signal.kind is SchedulerSignalKind.CLOCK_DISCONTINUITY:
+            self._fail(
+                f"clock discontinuity detected before target ({target_signal.clock_skew_ms:.0f} ms)",
+                error_code="CLOCK_DISCONTINUITY",
+            )
             return
-        lateness_ms = (datetime.now(target.tzinfo) - target).total_seconds() * 1000
-        if lateness_ms > 2000:
-            self._fail(f"target missed by {lateness_ms:.0f} ms; refusing late dispatch")
+        if target_signal.kind is SchedulerSignalKind.LATE:
+            self._fail(
+                f"target missed by {target_signal.lateness_ms:.0f} ms; refusing late dispatch",
+                error_code="LATE_TARGET",
+            )
             return
+        if target_signal.kind is not SchedulerSignalKind.TARGET_DUE:
+            self._fail(f"unexpected target scheduler signal: {target_signal.kind.value}")
+            return
+
+        self._event(
+            "info",
+            "Scheduler target due",
+            {
+                "schedulerWakeAt": target_signal.wall_at.isoformat(),
+                "wakeLatenessMs": round(target_signal.lateness_ms, 3),
+            },
+        )
         self._execute_checkout_flow()
 
     def _execute_checkout_flow(self) -> None:
@@ -470,6 +525,7 @@ class RunnerService:
                     else:
                         self.active_run_id = None
                         self.active_snapshot = None
+                        self._schedule_lease = None
 
             self._event("error", message)
 
