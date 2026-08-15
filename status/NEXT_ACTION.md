@@ -2,54 +2,56 @@
 
 ## Single next objective
 
-**R2 — Local Store / Atomic ARM / Restart Safety.**
+**R3 — Scheduler / Timing Contract.**
 
-R1 Domain Contracts passed its tests/review. Do not expand scope or jump to R3 before R2 is independently verified.
+R1 and R2 passed independently. Do not begin R4 before R3 passes and Checkpoint C1 reviews R1-R3 together.
 
 ## Read first
 
 1. `status/CURRENT_STATUS.md`
 2. `verification/R1_DOMAIN_REVIEW.md`
-3. `design/IMPLEMENTATION_READY_PLAN.md` — R2 section
-4. `design/COMPONENT_CONTRACTS.md` — Local Store / RunnerService
-5. `design/STATE_MACHINE.md` — ARM/restart behavior
-6. `design/SECURITY_MODEL.md`
+3. `verification/R2_STORE_RECOVERY_REVIEW.md`
+4. `design/IMPLEMENTATION_READY_PLAN.md` — R3 section
+5. `design/TIMING_DESIGN.md`
+6. `design/COMPONENT_CONTRACTS.md` — Scheduler
 7. `harness/IMPLEMENTATION_GATE_CHECKLIST.md`
 
-## R2 Gap IDs
+## R3 Gap IDs
 
-- G02 atomic runId + snapshot before scheduler
-- G16 restart fail-closed recovery
-- operational support for G01 immutable active-run snapshot
+- G07 SchedulerSignal / clock discontinuity
+- G08 explicit `maxLatenessMs`
+- prepares G26 live timing evidence
 
 ## Tests first
 
-Before runtime integration, write tests for:
-- atomic snapshot persistence
-- storage failure blocks ARM/scheduling
-- corrupt store is visible failure, not silent reset
-- restart from RUNNING/ambiguous state never dispatches
-- persisted snapshot remains immutable after reload
-- terminal/cancelled history is not resumed as a live run
+Write deterministic timing tests for:
+- prewarm deadline ordering
+- PREWARM_DUE and TARGET_DUE each emitted once
+- cancellation before target
+- LATE when max lateness exceeded
+- clock/sleep discontinuity fails closed
+- already-past target rejection
+- no intentional early target signal
+
+Use an injected/fake clock where practical. Browser/T1 dependencies are forbidden in scheduler tests.
 
 ## Allowed implementation scope
 
-- narrow new `src/precision_runner/store.py` (or equivalent)
-- store/recovery tests
-- only the minimal `service.py` integration required by R2
+- `src/precision_runner/timing.py`
+- optional narrow `scheduler.py` if clearer
+- `tests/test_timing.py` and new scheduler tests
+- minimal `service.py` integration to consume the scheduler contract
 
-No scheduler redesign, adapter migration, browser refactor, UI work, or live-target request belongs in R2.
+No adapter migration, BrowserBridge refactor, UI work, or target-site request belongs in R3.
 
 ## Completion condition
 
-R2 ends only after:
+R3 ends only after:
 - full unit suite passes
-- changed files are reviewed against storage/restart contracts
-- no hidden replay path exists
-- status/review evidence is updated
+- hardcoded orchestrator lateness policy is replaced by snapshot timing contract
+- no early dispatch path exists
+- discontinuity/late behavior is explicit
+- R3 review evidence is recorded
+- C1 review passes
 
-Then R3 becomes eligible.
-
-## LIVE remains separate
-
-R2 completion does not change LIVE NO-GO blockers in `verification/POC_GO_NO_GO.md`.
+Then R4 becomes eligible.
