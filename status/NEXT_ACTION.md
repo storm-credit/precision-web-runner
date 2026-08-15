@@ -2,50 +2,40 @@
 
 ## Single next objective
 
-Complete the **Implementation-Ready Plan** while keeping runtime code frozen.
+**Obtain explicit user approval before runtime coding.**
 
-The Deep Design baseline has been reviewed, the user instructed the project to continue, and the existing Architecture Spike has now been classified file-by-file in `design/IMPLEMENTATION_RECONCILIATION.md`.
+Implementation reconciliation and the final R1-R10 implementation-ready plan are complete. Harness Gate 6 passed for planning. The project must now stop because the user explicitly requested coding last.
 
-## Required planning order
+## Approved plan to review
 
-1. Read `status/CURRENT_STATUS.md`.
-2. Read `design/IMPLEMENTATION_RECONCILIATION.md`.
-3. Read `verification/IMPLEMENTATION_GAP_MATRIX.md`.
-4. Map each future implementation slice to one or more Gap IDs.
-5. For each slice, name the design contract it satisfies.
-6. Define tests/checks **before** code changes.
-7. Define completion evidence and rollback boundary.
-8. Verify dependency order so no unsafe half-state is introduced.
-9. Re-run Harness Gate 6 — Implementation Ready.
-10. Present the final plan for explicit user coding approval.
+1. `design/IMPLEMENTATION_RECONCILIATION.md`
+2. `verification/IMPLEMENTATION_GAP_MATRIX.md`
+3. `design/IMPLEMENTATION_READY_PLAN.md`
+4. `verification/IMPLEMENTATION_READY_REVIEW.md`
+5. `verification/POC_GO_NO_GO.md`
 
-## Planned slices
+## If coding is approved
 
-- R1 Domain contracts: TaskDefinition, ArmedRunSnapshot, RunId, Mode, state/error/event types
-- R2 Local Store + atomic ARM + restart inspection
-- R3 Scheduler/timing/discontinuity/telemetry
-- R4 Adapter Contract v1 + T1 migration
-- R5 Generic BrowserBridge + origin/profile guards
-- R6 Orchestrator + side-effect-aware Error Policy
-- R7 Observability/redaction/retention
-- R8 Local Control API hardening
-- R9 Concept 02 UI reconciliation + TEST/LIVE/blockers
-- R10 Windows evidence gates + safe rehearsals
+Begin **R1 Domain Contracts only**.
 
-## Do not do next
+Do not jump to R2-R10 in the same uncontrolled change.
 
-- do not modify `src/`, `tests/`, `scripts/`, or dependencies
-- do not add features outside reconciliation
-- do not add second-site support
-- do not enable LAN/remote phone control
-- do not automate final payment authorization
-- do not guess Signature `shippingType`
-- do not perform irreversible live target requests merely to collect evidence
+R1 must:
+- cite Gap IDs G01/G03/G13/G14/G20
+- define tests first
+- modify only approved R1 files
+- keep T1-specific values out of generic core
+- create immutable ArmedRunSnapshot foundation
+- run regression tests
+- complete C1 review prerequisites as applicable
+- update status/deviations if reality differs
 
-## Coding trigger
+Then stop for slice verification before R2.
 
-Runtime implementation begins only after the user explicitly approves the final R1-R10 implementation plan.
+## If coding is not approved yet
+
+Make no runtime changes. Documentation can be clarified, but no feature work starts.
 
 ## LIVE remains separate
 
-Even after coding approval/completion, LIVE remains NO-GO until all mandatory target/environment/rehearsal/timing/failure/UI/day-of-live gates pass in `verification/POC_GO_NO_GO.md`.
+Coding approval is not LIVE approval. `verification/POC_GO_NO_GO.md` must still pass all target, environment, rehearsal, timing, failure, UX, and day-of-live gates.
